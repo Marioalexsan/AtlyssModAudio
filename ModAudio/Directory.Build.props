@@ -1,0 +1,31 @@
+<Project>
+    <!-- Specify here the path to ATLYSS's install folder -->
+    <PropertyGroup>
+        <AtlyssPath>D:\SteamLibrary\steamapps\common\ATLYSS\</AtlyssPath>
+    </PropertyGroup>
+
+    <!-- Thunderstore configuration -->
+    <PropertyGroup>
+        <!-- Create a package? -->
+        <CreateThunderstorePackage>true</CreateThunderstorePackage>
+
+        <ThunderstorePackageName>ModAudio</ThunderstorePackageName>
+        <ThunderstoreTeamName>Marioalexsan</ThunderstoreTeamName>
+        <ThunderstorePackageDescription>Replace game audio with your own mixtape.</ThunderstorePackageDescription>
+        <ThunderstoreWebsite>https://github.com/Marioalexsan/AtlyssModAudio</ThunderstoreWebsite>
+    </PropertyGroup>
+    <ItemGroup>
+        <!-- Thunderstore dependency strings -->
+        <ThunderstoreDependency Include="BepInEx-BepInExPack-5.4.2100" Visible="false" />
+        <ThunderstoreDependency Include="Nessie-EasySettings-1.1.8" Visible="false" />
+        
+        <!-- Output items to include from build assemblies -->
+        <ThunderstoreAssemblyInclude Include="$(AssemblyName).dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="Microsoft.Win32.Registry.dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="NAudio.Core.dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="NAudio.WinMM.dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="NVorbis.dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="System.Memory.dll" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="System.Runtime.CompilerServices.Unsafe.dll" Visible="false" />
+    </ItemGroup>
+</Project>
