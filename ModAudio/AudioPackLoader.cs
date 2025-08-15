@@ -24,8 +24,8 @@ public static class AudioPackLoader
     {
         return Path.GetFullPath(path)
             .Replace('\\', '/')
-            .Replace($"{Paths.PluginPath}/", "plugin://")
-            .Replace($"{Paths.ConfigPath}/", "config://");
+            .Replace($"{Path.GetFullPath(Paths.PluginPath).Replace('\\', '/').TrimEnd('/')}/", "plugin://")
+            .Replace($"{Path.GetFullPath(Paths.ConfigPath).Replace('\\', '/').TrimEnd('/')}/", "config://");
     }
 
     private static bool IsSanitizedId(string id)
@@ -53,10 +53,23 @@ public static class AudioPackLoader
 
     private static string ConvertPathToDisplayName(string path)
     {
+        const string RootSep = "://";
+
         var cleanPath = ReplaceRootPath(path);
 
-        var index = cleanPath.IndexOf('/');
-        return index == -1 ? cleanPath : cleanPath[..index];
+        var index = cleanPath.IndexOf(RootSep);
+        var removedRoot = index == -1 ? cleanPath : cleanPath[(index + RootSep.Length)..];
+
+        if (removedRoot.EndsWith(AudioPackConfigNameJson))
+            return removedRoot[..^(AudioPackConfigNameJson.Length + 1)];
+
+        if (removedRoot.EndsWith(AudioPackConfigNameToml))
+            return removedRoot[..^(AudioPackConfigNameToml.Length + 1)];
+
+        if (removedRoot.EndsWith(RoutesConfigName))
+            return removedRoot[..^(RoutesConfigName.Length + 1)];
+
+        return removedRoot;
     }
 
     public static List<AudioPack> LoadAudioPacks()
@@ -239,7 +252,7 @@ public static class AudioPackLoader
                 {
                     if (File.Exists(clipPath + ext))
                     {
-                        clipPath = clipPath + ext;
+                        clipPath += ext;
                         break;
                     }
                 }

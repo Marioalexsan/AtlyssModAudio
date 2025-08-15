@@ -4,7 +4,6 @@ using Jint.Native;
 using Jint.Native.Json;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
-using Jint.Runtime.Modules;
 using System.Text;
 
 namespace Marioalexsan.ModAudio.Scripting;
@@ -15,35 +14,19 @@ internal static class ScriptingEngine
         var engine = new Engine(options =>
         {
             options.Strict = true; // Best practice
+            options.Interop.AllowWrite = false; // Readonly
+            options.Interop.ObjectWrapperReportedMemberTypes = System.Reflection.MemberTypes.Field | System.Reflection.MemberTypes.Property; // Only properties and fields (i.e. data)
+            options.Interop.ObjectWrapperReportedFieldBindingFlags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
             options.LimitMemory(4 * 1024 * 1024); // Max 4MB before script is murdered
             options.TimeoutInterval(TimeSpan.FromMilliseconds(100)); // Max 100ms before script is murdered (~6 frames, which is overkill)
         });
 
         AddConsoleAPI(engine);
 
-        engine.Modules.Add("modaudio", builder =>
-        {
-            ExportContext(engine, builder);
-        });
+        engine.Modules.Add("modaudio", module => ModAudioModule.Build(engine, module));
+        engine.Modules.Add("atlyss", module => AtlyssModule.Build(engine, module));
 
         return engine;
-    }
-
-    private static void ExportContext(Engine jsEngine, ModuleBuilder builder)
-    {
-        static void DefineGetter(JsObject context, string name, Func<JsValue, JsValue[], JsValue> get)
-        {
-            context.DefineOwnProperty(name, new GetSetPropertyDescriptor(new ClrFunction(context.Engine, $"get {name}", get), null, true, false));
-        }
-
-        var context = new JsObject(jsEngine);
-
-        DefineGetter(context, "map_name", (self, arguments) => ContextProvider.MapName);
-        DefineGetter(context, "map_subregion", (self, arguments) => ContextProvider.MapSubregion);
-        DefineGetter(context, "enemies_targeting_player", (self, arguments) => ContextProvider.EnemiesTargetingPlayer);
-        DefineGetter(context, "seconds_since_game_start", (self, arguments) => ContextProvider.SecondsSinceGameStart);
-
-        builder.ExportObject("context", context);
     }
 
     private static void AddConsoleAPI(Engine jsEngine)
@@ -62,6 +45,8 @@ internal static class ScriptingEngine
             new ClrFunction(jsEngine, "error", (self, arguments) => Log(serializer, arguments, LogLevel.Error)),
             false, true, false
             ));
+
+        console.PreventExtensions();
 
         jsEngine.Global.DefineOwnProperty("console", new PropertyDescriptor(console, false, true, false));
     }

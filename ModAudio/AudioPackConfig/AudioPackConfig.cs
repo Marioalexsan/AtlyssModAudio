@@ -23,6 +23,13 @@ public class AudioPackConfig
     public string DisplayName { get; set; } = "";
 
     /// <summary>
+    /// A user-readable display name for your audio pack. Used in the UI.
+    /// </summary>
+    [JsonProperty("pack_scripts", Required = Required.DisallowNull)]
+    [TomlProperty("pack_scripts")]
+    public PackScripts PackScripts { get; set; } = new();
+
+    /// <summary>
     /// A list of custom clips defined by your audio pack.
     /// </summary>
     [JsonProperty("custom_clips", Required = Required.DisallowNull)]
@@ -106,6 +113,10 @@ public class AudioPackConfig
             Routes = routeConfig.Routes,
             Id = routeConfig.Id,
             DisplayName = routeConfig.DisplayName,
+            PackScripts =
+            {
+                Update = routeConfig.UpdateScript
+            }
         };
 
         foreach (var clipVolume in routeConfig.ClipVolumes)

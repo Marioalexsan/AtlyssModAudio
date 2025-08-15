@@ -14,6 +14,7 @@ public class RouteConfig
     public List<Route> Routes { get; set; } = [];
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public string UpdateScript { get; set; } = "";
 
     // Note: this format is stupid and dumb and I hate it and ugh why
     public static RouteConfig ReadTextFormat(Stream stream)
@@ -24,6 +25,7 @@ public class RouteConfig
         var routes = new List<Route>();
         var id = "";
         var displayName = "";
+        var updateScript = "";
 
         int lineNumber = 0;
 
@@ -45,7 +47,8 @@ public class RouteConfig
             {
                 lineNumber++;
 
-                var commentPos = nextLine.LastIndexOf('#');
+                // Take FIRST hashtag, since a comment starts at the first character, not the last one
+                var commentPos = nextLine.IndexOf('#');
 
                 // Remove comments
                 if (commentPos != -1)
@@ -53,7 +56,7 @@ public class RouteConfig
 
                 var backslashPos = nextLine.LastIndexOf('\\');
 
-                if (backslashPos != -1)
+                if (backslashPos == -1)
                 {
                     routeText += nextLine;
                     break;
@@ -273,7 +276,8 @@ public class RouteConfig
             ClipVolumes = clipVolumes,
             Id = id,
             DisplayName = displayName,
-            Routes = routes
+            Routes = routes,
+            UpdateScript = updateScript
         };
 
         bool SplitRouteParts(string line, out List<string> clipNames, out List<string> replacements, out List<string> overlays, out List<string> effects)
@@ -351,7 +355,8 @@ public class RouteConfig
 
             bool overlaysComeFirst = overlayArrayIndex < effectArrayIndex;
 
-            List<string> ParseListEntries(string part) => part.Trim().Split(ListSeparator, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToList();
+            // Ignore empty list entries, this allows for nicer syntax by starting the first field with a pipe
+            List<string> ParseListEntries(string part) => [.. part.Trim().Split(ListSeparator, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x))];
 
             clipNames = ParseListEntries(parts[0]);
 
@@ -382,6 +387,10 @@ public class RouteConfig
             if (line.Trim().StartsWith("%id "))
             {
                 id = line.Trim()["%id ".Length..];
+            }
+            else if (line.Trim().StartsWith("%updatescript "))
+            {
+                updateScript = line.Trim()["%updatescript ".Length..];
             }
             else if (line.Trim().StartsWith("%displayname "))
             {
@@ -450,7 +459,7 @@ public class RouteConfig
                 ReplacementClips = [new() {
                         Name = replacementName
                     }],
-                ReplacementWeight = randomWeight
+                ReplacementWeight = randomWeight,
             });
         }
     }

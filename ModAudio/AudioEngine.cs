@@ -1,5 +1,7 @@
 ﻿using Jint;
+using Jint.Native;
 using Jint.Native.Function;
+using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
 using UnityEngine;
 
@@ -56,12 +58,19 @@ internal static class AudioEngine
     {
         Watch.Restart();
 
-        ScriptEngine?.Dispose();
-        ScriptEngine = ScriptingEngine.SetupJint();
-
         try
         {
             Logging.LogInfo("Reloading engine...");
+
+            // Reset internal state
+            MapInstance_Handle_AudioSettings.ForceCombatMusic = false;
+
+            if (hardReload)
+            {
+                Logging.LogInfo("Reloading scripting engine...");
+                ScriptEngine?.Dispose();
+                ScriptEngine = ScriptingEngine.SetupJint();
+            }
 
             // I like cleaning audio sources
             CleanupSources();
@@ -173,6 +182,18 @@ internal static class AudioEngine
     {
         try
         {
+            // Run update scripts first
+
+            foreach (var pack in EnabledPacks)
+            {
+                if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update))
+                {
+                    ExecuteUpdate(pack);
+                }
+            }
+
+            // Check play on awake sources
+
             foreach (var audio in UnityEngine.Object.FindObjectsOfType<AudioSource>(true))
             {
                 if (audio.playOnAwake)
@@ -255,7 +276,11 @@ internal static class AudioEngine
 
         Route route = targetPack.Config.Routes[state.RouteAudioPackRouteIndex];
 
-        var updatedGroup = ExecuteTargetGroup(targetPack, route);
+        var routeApi = new TargetGroupRouteAPI(state);
+
+        ExecuteTargetGroup(targetPack, route, routeApi);
+
+        var updatedGroup = routeApi.TargetGroup;
 
         if (updatedGroup == "___skip___")
             return true; // Ignore skips
@@ -624,39 +649,83 @@ internal static class AudioEngine
         }
     }
 
-    private static string ExecuteTargetGroup(AudioPack pack, Route route)
+    private static void PreScriptActions()
+    {
+        AudioEngineAPI.UpdateGameState();
+        ContextAPI.UpdateGameState();
+    }
+
+    private static void PostScriptActions()
+    {
+        MapInstance_Handle_AudioSettings.ForceCombatMusic = AudioEngineAPI.ForceCombatMusic;
+    }
+
+    private static void ExecuteTargetGroup(AudioPack pack, Route route, TargetGroupRouteAPI routeApi)
     {
         if (pack.ForceDisableScripts)
-            return "___skip___";
+        {
+            routeApi.TargetGroup = "___skip___";
+            return;
+        }
 
         if (string.IsNullOrEmpty(route.TargetGroupScript))
-            return "___all___";
+        {
+            routeApi.TargetGroup = "___all___";
+            return;
+        }
 
         if (!pack.ScriptMethods.TryGetValue(route.TargetGroupScript, out Function script))
         {
             Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
             pack.ForceDisableScripts = true;
-            return "___skip___";
+            routeApi.TargetGroup = "___skip___";
+            return;
         }
 
+        PreScriptActions();
         try
         {
             // TODO: Check whenever scripts are allocating way too much total memory
-
-            var result = script.Call();
-
-            if (!result.IsString())
-                throw new InvalidOperationException($"Invalid result type returned! Got {result.Type}, expected {Jint.Runtime.Types.String}!");
-
-            return result.AsString();
+            script.Call(routeApi.Wrap(ScriptEngine));
         }
         catch (Exception e)
         {
             Logging.LogWarning($"Target group script call failed for pack {pack.Config.Id}, script {route.TargetGroupScript}!");
             Logging.LogWarning(e);
             pack.ForceDisableScripts = true;
-            return "___skip___";
+            routeApi.TargetGroup = "___skip___";
+            return;
         }
+        PostScriptActions();
+    }
+
+    private static void ExecuteUpdate(AudioPack pack)
+    {
+        if (pack.ForceDisableScripts)
+        {
+            return;
+        }
+
+        if (!pack.ScriptMethods.TryGetValue(pack.Config.PackScripts.Update, out Function script))
+        {
+            Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
+            pack.ForceDisableScripts = true;
+            return;
+        }
+
+        PreScriptActions();
+        try
+        {
+            // TODO: Check whenever scripts are allocating way too much total memory
+            script.Call();
+        }
+        catch (Exception e)
+        {
+            Logging.LogWarning($"Update script call failed for pack {pack.Config.Id}, script {pack.Config.PackScripts.Update}!");
+            Logging.LogWarning(e);
+            pack.ForceDisableScripts = true;
+        }
+        PostScriptActions();
     }
 
     private static bool MatchesSource(AudioSource source, Route route)
@@ -677,7 +746,7 @@ internal static class AudioEngine
 
     private static bool Route(AudioSource source)
     {
-        ContextProvider.SetGameState();
+        ContextAPI.UpdateGameState();
 
         var trackedData = TrackedSources[source];
 
@@ -745,7 +814,7 @@ internal static class AudioEngine
 
         // Get a replacement from routes
 
-        var cachedGroups = new Dictionary<Route, string>();
+        var cachedTargetGroupData = new Dictionary<Route, TargetGroupRouteAPI>();
 
         var replacements = new List<(AudioPack Pack, Route Route)>();
 
@@ -756,9 +825,13 @@ internal static class AudioEngine
                 if (!MatchesSource(source, route))
                     continue;
 
-                var group = cachedGroups[route] = ExecuteTargetGroup(pack, route);
+                var routeApi = new TargetGroupRouteAPI(TrackedSources[source]);
 
-                if (group != "___skip___")
+                ExecuteTargetGroup(pack, route, routeApi);
+
+                var group = cachedTargetGroupData[route] = routeApi;
+
+                if (group.TargetGroup != "___skip___")
                     replacements.Add((pack, route));
             }
         }
@@ -769,7 +842,7 @@ internal static class AudioEngine
         {
             replacementRoute = Utils.SelectRandomWeighted(RNG, replacements, out int selectedRouteIndex);
 
-            var group = cachedGroups[replacementRoute.Value.Route];
+            var targetGroupData = cachedTargetGroupData[replacementRoute.Value.Route];
 
             // Apply overall effects
 
@@ -794,7 +867,7 @@ internal static class AudioEngine
                 AppliedLoop = source.loop,
                 RouteAudioPackId = replacementRoute.Value.Pack.Config.Id,
                 RouteAudioPackRouteIndex = selectedRouteIndex,
-                RouteGroup = group,
+                RouteGroup = targetGroupData.TargetGroup,
                 UsesDynamicTargeting = replacementRoute.Value.Route.EnableDynamicTargeting
             };
 
@@ -808,13 +881,13 @@ internal static class AudioEngine
                 {
                     var replacement = replacementRoute.Value.Route.ReplacementClips[i];
 
-                    if (group == "___all___" || replacement.Group == group)
+                    if (targetGroupData.TargetGroup == "___all___" || replacement.Group == targetGroupData.TargetGroup)
                         groupReplacements.Add(replacement);
                 }
 
                 if (groupReplacements.Count == 0)
                 {
-                    Logging.LogWarning(Texts.NoAudioClipsInGroup(group));
+                    Logging.LogWarning(Texts.NoAudioClipsInGroup(targetGroupData.TargetGroup));
                 }
                 else
                 {
@@ -877,10 +950,13 @@ internal static class AudioEngine
                 if (!(route.OverlayClips.Count > 0 && MatchesSource(source, route) && (!route.LinkOverlayAndReplacement || replacementRoute?.Route == route)))
                     continue;
 
-                if (!cachedGroups.TryGetValue(route, out string group))
-                    group = ExecuteTargetGroup(pack, route);
+                if (!cachedTargetGroupData.TryGetValue(route, out var targetGroupData))
+                {
+                    targetGroupData = new TargetGroupRouteAPI(TrackedSources[source]);
+                    ExecuteTargetGroup(pack, route, targetGroupData);
+                }
 
-                if (group != "___skip___")
+                if (targetGroupData.TargetGroup != "___skip___")
                     overlays.Add((pack, route));
             }
         }
