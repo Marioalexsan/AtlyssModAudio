@@ -66,14 +66,14 @@ internal static class Utils
         ArrayPool<T>.Shared.Return(cache);
     }
 
-    public static (AudioPack Pack, Route Route) SelectRandomWeighted(Random rng, List<(AudioPack Pack, Route Route)> routes, out int selectedIndex)
+    public static (AudioPack Pack, Route Route) SelectRandomWeighted(Random rng, List<(AudioPack Pack, Route Route)> routes)
     {
         var totalWeight = 0.0;
 
         for (int i = 0; i < routes.Count; i++)
             totalWeight += routes[i].Route.ReplacementWeight;
 
-        selectedIndex = -1;
+        var selectedIndex = -1;
 
         var randomValue = rng.NextDouble() * totalWeight;
 
@@ -87,14 +87,14 @@ internal static class Utils
         return routes[selectedIndex];
     }
 
-    public static ClipSelection SelectRandomWeighted(Random rng, List<ClipSelection> selections, out int selectedIndex)
+    public static ClipSelection SelectRandomWeighted(Random rng, List<ClipSelection> selections)
     {
         var totalWeight = 0.0;
 
         for (int i = 0; i < selections.Count; i++)
             totalWeight += selections[i].Weight;
 
-        selectedIndex = -1;
+        var selectedIndex = -1;
 
         var randomValue = rng.NextDouble() * totalWeight;
 

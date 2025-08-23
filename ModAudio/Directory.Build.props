@@ -18,6 +18,7 @@
         <!-- Thunderstore dependency strings -->
         <ThunderstoreDependency Include="BepInEx-BepInExPack-5.4.2100" Visible="false" />
         <ThunderstoreDependency Include="Nessie-EasySettings-1.1.8" Visible="false" />
+        <ThunderstoreDependency Include="Marioalexsan-AtlyssJint-0.1.1" Visible="false" />
         
         <!-- Output items to include from build assemblies -->
         <ThunderstoreAssemblyInclude Include="$(AssemblyName).dll" Visible="false" />

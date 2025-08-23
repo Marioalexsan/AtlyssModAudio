@@ -5,17 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [WIP 3.0.0] - 2025-Aug-08
+## [3.0.0] - 2025-Aug-16 - "The Bugfest Development Hell Update"
+
+```
+Trust me when I say that these changelogs won't make too much sense.
+If you want to find out how to use some of the new features, you'll either have to look through the mod's code,
+or look at examples from upcoming audio packs to understand how to use the new features.
+
+These features will be documented properly at a later point in time.
+```
 
 ### Deprecated
 
 - Removed unused and undocumented route options: `filter_by_sources`, `filter_by_object`
-  - These features are instead avalable as part of the new filter scripts 
-- Removed a feature that would automatically replace clips based on whenever the audio files match the name of the vanilla clips
+  - These features can instead be implemented via the scripting engine
+- Removed a feature that would automatically replace clips based on whenever the audio files match the name of the vanilla clips 
   - If you have an audio pack that used this feature, you now have to explicitly do the replacement in the audio pack configuration
+- Removed option to specify routes via JSON configuration in `modaudio.config.json`
+  - This might be replaced by JS script configurations when full scripting support happens
 
 ### Added
 
+- **IMPORTANT**: ModAudio now has limited experimental support for scripting via JavaScript!
+  - Scripts are specified with a `__routes.js` file alongside `__routes.txt`
+  - Added the `target_group_script` parameter for routes, which specifies a script function that will select a group of target clips to play based on the conditions you specify
+  - Added the `enable_dynamic_targeting` parameter for routes, which specifies that audio will be updated dynamically using `target_group_script`; this allows for dynamic map music or conditional routing
 - Added a route effect to force audio sources to loop even if the original tracks didn't loop
   - usable using the `force_loop` effect: `source = replacement ~ force_loop : true`
 - Added multiple previously unavailable route effects. Their effects are documented in `AudioPackConfig.cs`. The full list of effects is now as follows:
@@ -24,15 +38,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `overlay_stops_if_source_stops` - true/false
   - `relative_overlay_effects` - true/false
   - `overlays_ignore_restarts` - true/false
-  - `replacement_weight` / `weight` - number
+  - `target_group_script` - string
+  - `enable_dynamic_targeting` - true/false
+  - `replacement_weight` (alternatively `weight`) - number
   - `volume` - number
   - `pitch` - number
   - `force_loop` - true/false
-- Added the `filter_script` parameter for routes, which specified a filter method to use for filtering within the route 
-- Added the `target_group_script` parameter for routes, which specified a dynamic target group to use for rerouting music that's already playing
-- Added basic JavaScript scripting for audio packs. Scripts need to be placed in `modaudio.js` next to the audio pack configuration
-  - This is currently used for specifying custom filtering for routes and dynamic targeting
-  - Inline scripts can also be specified when using TOML or JSON formats (not __routes.txt, you have to specify methods from `modaudio.js` for that one)
+- Added a global option for audio packs to specify a script function to be called every frame via `%updatescript`
+  - Example: `%updatescript pack_update`
+  - This allows you to check game state and track various conditions, or call engine methods
+- Added a fifth parameter for replacement clips - this represents a group that can be selected by `target_group_script`
+  - New syntax: `clipname : weight : volume : pitch : group` 
+  - This does not apply to overlays; they cannot receive groups
+- Comments can now be used anywhere, and will apply until the end of the line, and you can now also format your routes across multiple lines by using a terminating `\` character
+  - Example:
+    ```
+    # Combat music
+    modaudio_map_crescentroad_action = <atlyss>_mu_wonton5 # Everything after hashtags is ignoerd
+
+    # My cool route
+    _mu_haven                                             \ # This is a comment, we're using \ to separate the route across multiple lines
+      = | ___default___ : 1.0 : 1.0 : 1.0 : nonarena      \ # This is another comment
+        | <atlyss>_mu_hell02 : 1.0 : 1.0 : 1.0 : arena    \
+      ~ | target_group_script : target_group_sanctumarena \
+        | enable_dynamic_targeting : true                 \
+        | smooth_dynamic_targeting : true                   # This does not end with a \ character since it's the end of the route
+    ```
+- Within lists in `__routes.txt` (marked by the `|` character), you can now use a leading or trailing pipe character for formatting purposes without it causing issues
+- ModAudio now allows you to use vanilla clips as part of replacements and overlays. You can specify a vanilla clip by prepending it with `<atlyss>`
+  - For example: `_mu_haven = <atlyss>_mu_wonton5`
+- ModAudio now tries to add placeholder empty audio sources for maps that do not have them, which should allow defining custom music for them.
+  - The exact custom source names that you need to use in `__routes.txt` will be logged in the console 
+  - For example:
+    - day music: `modaudio_map_{clean map name}_day`
+    - night music: `modaudio_map_{clean map name}_night`
+    - action music: `modaudio_map_{clean map name}_action`
+- ModAudio now allows forcing action music to play as part of maps by using scripts
+
+### Changed
+
+- ModAudio now tries to implement / fix "null" audio sources, so that they play correctly
+  - You might notice that Sanctum Arena and Executioner's Tomb now play background music, unlike before
+- Changed vanilla audio mixing logic for map instances so that the transition from action music to day / night music is smoother 
+
+### Fixed
+
+- Fixed hard boss music not playing / routing properly (notably Valdur in Crescent Grove)
+- Fixed an issue with custom clip volumes not applying to in-memory audio files
 
 ## [2.2.2] - 2025-May-22
 

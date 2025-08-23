@@ -2,21 +2,14 @@
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
-using Jint;
-using Jint.Native;
-using Jint.Native.Function;
-using Jint.Native.Object;
-using Marioalexsan.ModAudio.Scripting;
 using Marioalexsan.ModAudio.SoftDependencies;
-using System.Diagnostics;
-using System.Linq;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
 
 [BepInPlugin(ModInfo.GUID, ModInfo.NAME, ModInfo.VERSION)]
 [BepInDependency(EasySettings.ModID, BepInDependency.DependencyFlags.SoftDependency)]
-[BepInDependency("Marioalexsan.AtlyssJint")]
+[BepInDependency("Marioalexsan.AtlyssJint", BepInDependency.DependencyFlags.HardDependency)]
 public class ModAudio : BaseUnityPlugin
 {
     public static ModAudio Plugin => _plugin ?? throw new InvalidOperationException($"{nameof(ModAudio)} hasn't been initialized yet. Either wait until initialization, or check via ChainLoader instead.");
@@ -25,13 +18,12 @@ public class ModAudio : BaseUnityPlugin
     public const float MinWeight = 0.001f;
     public const float MaxWeight = 1000f;
     public const float DefaultWeight = 1f;
-    public const string DefaultClipIdentifier = "___default___";
 
     internal new ManualLogSource Logger { get; private set; }
 
     private readonly Harmony _harmony;
 
-    private bool _reloadRequired = true;
+    private bool _firstTimeUpdate = true;
 
     public string ModAudioConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
     public string ModAudioPluginFolder => Path.GetDirectoryName(Info.Location);
@@ -42,7 +34,6 @@ public class ModAudio : BaseUnityPlugin
 
         LogPackLoading = Config.Bind("Logging", nameof(LogPackLoading), true, Texts.LogAudioLoadingDescription);
         LogAudioPlayed = Config.Bind("Logging", nameof(LogAudioPlayed), false, Texts.LogAudioPlayedDescription);
-        AlwaysLogCustomEventsPlayed = Config.Bind("Logging", nameof(AlwaysLogCustomEventsPlayed), false, Texts.AlwaysLogCustomEventsPlayedDescription);
         UseMaxDistanceForLogging = Config.Bind("Logging", nameof(UseMaxDistanceForLogging), false, Texts.UseMaxDistanceForLoggingDescription);
         MaxDistanceForLogging = Config.Bind("Logging", nameof(MaxDistanceForLogging), 32f, new ConfigDescription(Texts.MaxDistanceForLoggingDescription, new AcceptableValueRange<float>(32f, 2048)));
 
@@ -61,7 +52,16 @@ public class ModAudio : BaseUnityPlugin
         if (!Directory.Exists(ModAudioConfigFolder))
             Directory.CreateDirectory(ModAudioConfigFolder);
 
-        VanillaClipNames.GenerateReferenceFile(Path.Combine(ModAudioConfigFolder, "clip_names.txt"));
+        if (File.Exists(Path.Combine(ModAudioConfigFolder, "clip_names.txt")))
+        {
+            try
+            {
+                File.Move(Path.Combine(ModAudioConfigFolder, "clip_names.txt"), Path.Combine(ModAudioConfigFolder, "clip_names_obsolete.txt"));
+            }
+            catch (Exception) { }
+        }
+
+        VanillaClips.GenerateReferenceFile(Path.Combine(ModAudioConfigFolder, "clip_names.md"));
     }
 
     private void Awake()
@@ -70,17 +70,10 @@ public class ModAudio : BaseUnityPlugin
 
         SetupBaseAudioPack();
         InitializeConfiguration();
-
-        var stopwatch = Stopwatch.StartNew();
-        Logging.LogInfo("Data: " + string.Join(" ", Resources.LoadAll<AudioClip>("/").Select(x => x.name)));
-        stopwatch.Stop();
-
-        Logging.LogInfo(stopwatch.ElapsedMilliseconds + " ms time");
     }
 
     public ConfigEntry<bool> LogPackLoading { get; private set; }
     public ConfigEntry<bool> LogAudioPlayed { get; private set; }
-    public ConfigEntry<bool> AlwaysLogCustomEventsPlayed { get; private set; }
 
     public ConfigEntry<bool> UseMaxDistanceForLogging { get; private set; }
     public ConfigEntry<float> MaxDistanceForLogging { get; private set; }
@@ -112,14 +105,13 @@ public class ModAudio : BaseUnityPlugin
                     {
                         var enabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
 
-                        if (enabled != pack.Enabled)
+                        if (enabled != pack.HasFlag(PackFlags.Enabled))
                         {
                             Logger.LogInfo($"Pack {pack.Config.Id} is now {(enabled ? "enabled" : "disabled")}");
                             softReloadRequired = true;
                         }
 
-
-                        pack.Enabled = enabled;
+                        pack.AssignFlag(PackFlags.Enabled, enabled);
                     }
 
                     if (softReloadRequired)
@@ -136,7 +128,6 @@ public class ModAudio : BaseUnityPlugin
                 EasySettings.AddHeader(ModInfo.NAME);
                 EasySettings.AddToggle(Texts.LogAudioLoadingTitle, LogPackLoading);
                 EasySettings.AddToggle(Texts.LogAudioPlayedTitle, LogAudioPlayed);
-                EasySettings.AddToggle(Texts.AlwaysLogCustomEventsTitle, AlwaysLogCustomEventsPlayed);
                 EasySettings.AddToggle(Texts.UseMaxDistanceForLoggingTitle, UseMaxDistanceForLogging);
                 EasySettings.AddAdvancedSlider(Texts.MaxDistanceForLoggingTitle, MaxDistanceForLogging, true);
 
@@ -159,7 +150,7 @@ public class ModAudio : BaseUnityPlugin
                 SetupBaseAudioPack();
                 Application.OpenURL(new Uri($"{ModAudioConfigFolder}").AbsoluteUri);
             });
-            AudioPackEnabledRoot = EasySettings.AddButton(Texts.ReloadTitle, () => _reloadRequired = true);
+            AudioPackEnabledRoot = EasySettings.AddButton(Texts.ReloadTitle, () => _firstTimeUpdate = true);
         }
 
         foreach (var pack in AudioEngine.AudioPacks)
@@ -176,11 +167,11 @@ public class ModAudio : BaseUnityPlugin
                         AudioPackEnabledObjects[pack.Config.Id] = (EasySettings.AddToggle(pack.Config.DisplayName, enabled), pack.Config.DisplayName);
                 }
 
-                pack.Enabled = enabled.Value;
+                pack.AssignFlag(PackFlags.Enabled, enabled.Value);
             }
             else
             {
-                pack.Enabled = existingEntry.Value;
+                pack.AssignFlag(PackFlags.Enabled, existingEntry.Value);
             }
         }
 
@@ -202,44 +193,13 @@ public class ModAudio : BaseUnityPlugin
         }
     }
 
-    private void CheckForObsoleteStuff()
-    {
-        static bool IsAudioPackFile(string name)
-        {
-            return
-                Path.GetFileName(name) == AudioPackLoader.AudioPackConfigNameJson
-                || Path.GetFileName(name) == AudioPackLoader.RoutesConfigName
-                || AudioClipLoader.SupportedLoadExtensions.Contains(Path.GetExtension(name));
-        }
-
-        var pluginPath = Path.GetDirectoryName(Info.Location);
-        var audioPath = Path.Combine(pluginPath, "audio");
-
-        var hasAudioFilesInPlugins = false;
-
-        if (Directory.GetFiles(pluginPath).Any(IsAudioPackFile))
-            hasAudioFilesInPlugins = true;
-
-        if (Directory.Exists(audioPath) && Directory.GetFiles(audioPath).Any(IsAudioPackFile))
-            hasAudioFilesInPlugins = true;
-
-        if (hasAudioFilesInPlugins)
-        {
-            Logger.LogWarning("There is an audio pack under ModAudio's plugin folder!");
-            Logger.LogWarning("Please use the folder from BepInEx/config for your custom packs instead of the plugin folder.");
-            Logger.LogWarning("When using r2modman, the plugin folder might be deleted mercilessly when you update or uninstall your mod, which will delete your custom audio.");
-        }
-    }
-
     private void Update()
     {
         try
         {
-            if (_reloadRequired)
+            if (_firstTimeUpdate)
             {
-                _reloadRequired = false;
-                CheckForObsoleteStuff();
-
+                _firstTimeUpdate = false;
                 AudioEngine.HardReload();
             }
 

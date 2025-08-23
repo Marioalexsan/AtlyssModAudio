@@ -17,6 +17,7 @@ internal static class ScriptingEngine
             options.Interop.AllowWrite = false; // Readonly
             options.Interop.ObjectWrapperReportedMemberTypes = System.Reflection.MemberTypes.Field | System.Reflection.MemberTypes.Property; // Only properties and fields (i.e. data)
             options.Interop.ObjectWrapperReportedFieldBindingFlags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            options.Interop.ObjectWrapperReportedPropertyBindingFlags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
             options.LimitMemory(4 * 1024 * 1024); // Max 4MB before script is murdered
             options.TimeoutInterval(TimeSpan.FromMilliseconds(100)); // Max 100ms before script is murdered (~6 frames, which is overkill)
         });

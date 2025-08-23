@@ -15,10 +15,12 @@ internal static class AtlyssModule
     {
         var wrapper = new JsObject(engine);
 
-        wrapper.AddGet("mainPlayer", (self, arguments) => ObjectWrapper.Create(engine, Player._mainPlayer));
-        wrapper.AddGet("actionBarManager", (self, arguments) => ObjectWrapper.Create(engine, MainMenuManager._current));
-        wrapper.AddGet("gameWorldManager", (self, arguments) => ObjectWrapper.Create(engine, GameWorldManager._current));
-        wrapper.AddGet("shopkeepManager", (self, arguments) => ObjectWrapper.Create(engine, ShopkeepManager._current));
+        wrapper.AddGet("mainPlayer", (self, arguments) => Player._mainPlayer ? ObjectWrapper.Create(engine, Player._mainPlayer) : JsValue.Null);
+        wrapper.AddGet("actionBarManager", (self, arguments) => ActionBarManager._current ? ObjectWrapper.Create(engine, ActionBarManager._current) : JsValue.Null);
+        wrapper.AddGet("gameWorldManager", (self, arguments) => GameWorldManager._current ? ObjectWrapper.Create(engine, GameWorldManager._current) : JsValue.Null);
+        wrapper.AddGet("shopkeepManager", (self, arguments) => ShopkeepManager._current ? ObjectWrapper.Create(engine, ShopkeepManager._current) : JsValue.Null);
+        wrapper.AddGet("mainMenuManager", (self, arguments) => MainMenuManager._current ? ObjectWrapper.Create(engine, MainMenuManager._current) : JsValue.Null);
+        wrapper.AddGet("inGameUI", (self, arguments) => InGameUI._current ? ObjectWrapper.Create(engine, InGameUI._current) : JsValue.Null);
 
         wrapper.PreventExtensions();
 

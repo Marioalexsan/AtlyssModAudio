@@ -1,9 +1,15 @@
-﻿using UnityEngine;
+﻿using System.Diagnostics.CodeAnalysis;
+using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
 
 public static class AudioSourceExtensions
 {
+    public static bool IsNullOrDestroyed(this UnityEngine.Object obj)
+    {
+        return obj == null;
+    }
+
     public static AudioSource CreateCloneOnTarget(this AudioSource source, GameObject targetObject)
     {
         var clone = targetObject.AddComponent<AudioSource>();
@@ -39,5 +45,72 @@ public static class AudioSourceExtensions
         clone.SetCustomCurve(AudioSourceCurveType.Spread, source.GetCustomCurve(AudioSourceCurveType.Spread));
 
         return clone;
+    }
+
+    public static string CreateRouteRepresentation(this ModAudioSource state)
+    {
+        var originalClipName = state.InitialState.Clip?.name ?? "(null)";
+
+        var clipDisplay = originalClipName;
+
+        for (int i = 0; i < state.RouteCount; i++)
+        {
+            clipDisplay += " > " + state.GetRoute(i).SelectedClip?.name ?? "(null)";
+        }
+
+        var volumeDisplay = state.InitialState.Volume != state.AppliedState.Volume ? $"{state.InitialState.Volume:F2} > {state.AppliedState.Volume:F2}" : $"{state.AppliedState.Volume:F2}";
+        var pitchDisplay = state.InitialState.Pitch != state.AppliedState.Pitch ? $"{state.InitialState.Pitch:F2} > {state.AppliedState.Pitch:F2}" : $"{state.AppliedState.Pitch:F2}";
+
+        var messageDisplay = $"Clip {clipDisplay} Src {state.Audio.name} Vol {volumeDisplay} Pit {pitchDisplay} AudGrp {state.Audio.outputAudioMixerGroup?.name ?? "(null)"}";
+
+        messageDisplay += $" Routing (";
+
+        bool dynamicRoute = false;
+
+        for (int i = 0; i < state.RouteCount; i++)
+        {
+            messageDisplay += state.GetRoute(i).TargetGroup;
+
+            if (i != state.RouteCount - 1)
+                messageDisplay += " > ";
+
+            dynamicRoute = dynamicRoute || state.GetRoute(i).Route.EnableDynamicTargeting;
+        }
+
+        messageDisplay += $")";
+
+        float distance = float.MinValue;
+
+        if (Player._mainPlayer)
+            distance = Vector3.Distance(Player._mainPlayer.transform.position, state.Audio.transform.position);
+
+        if (distance != float.MinValue)
+            messageDisplay += $" Dst {distance:F2}";
+
+        if (state.HasFlag(AudioFlags.IsOverlay))
+            messageDisplay += " overlay";
+
+        if (state.HasFlag(AudioFlags.IsDedicatedOneShotSource))
+            messageDisplay += " oneshot";
+
+        if (state.AppliedState.Loop)
+        {
+            if (state.InitialState.Loop != state.AppliedState.Loop)
+            {
+                messageDisplay += " loop(forced)";
+            }
+            else
+            {
+                messageDisplay += " loop";
+            }
+        }
+
+        if (dynamicRoute)
+            messageDisplay += " dynamic";
+
+        if (state.RouteCount >= 1 && state.GetRoute(0).Route.UseChainRouting)
+            messageDisplay += " chainrouted";
+
+        return messageDisplay;
     }
 }

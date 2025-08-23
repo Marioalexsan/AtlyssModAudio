@@ -54,6 +54,9 @@ public static class Texts
     public static string InvalidPackPath(string path, string id)
         => $"Refusing to load clip {id} from {path}, its path was outside of audio pack.";
 
+    public static string AudioFileNotFound(string file, string id)
+        => $"File {file} from clip {id} was not found.";
+
     public static string UnsupportedAudioFile(string file, string id)
         => $"File {file} from clip {id} is not a supported audio format.";
 
@@ -77,6 +80,9 @@ public static class Texts
            $" ({fileSize / AudioPackLoader.OneMB}MB >= {AudioPackLoader.FileSizeLimitForLoading / AudioPackLoader.OneMB}MB)," +
            $" but it cannot be streamed using the current audio format." +
            $" Please try using one of the following supported formats: {string.Join(", ", AudioClipLoader.SupportedStreamExtensions)}.";
+
+    public static string VanillaClipNotFound(string name)
+        => $"Couldn't get vanilla clip {name} to play for audio event!";
 
     public static string AudioClipNotFound(string name)
         => $"Couldn't get clip {name} to play for audio event!";

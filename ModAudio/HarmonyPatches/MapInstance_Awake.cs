@@ -6,7 +6,7 @@ namespace Marioalexsan.ModAudio.HarmonyPatches;
 [HarmonyPatch(typeof(MapInstance), nameof(MapInstance.Awake))]
 internal static class MapInstance_Awake
 {
-    static void Prefix(MapInstance __instance)
+    static void Postfix(MapInstance __instance)
     {
         const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
 
@@ -21,6 +21,9 @@ internal static class MapInstance_Awake
             __instance._actionMusic.clip = AudioClipLoader.GenerateEmptyClip($"modaudio_map_{cleanName}_action", EmptyClipSizeInSamples);
             __instance._actionMusic.loop = true;
 
+            if (AudioEngine.LoadedMixerGroups.TryGetValue("music", out var group))
+                __instance._actionMusic.outputAudioMixerGroup = group;
+
             Logging.LogInfo($"Map {__instance._mapName} doesn't have action music: placeholder source/clip {__instance._actionMusic.clip} was created!");
         }
 
@@ -30,6 +33,9 @@ internal static class MapInstance_Awake
             __instance._daytimeMusic.clip = AudioClipLoader.GenerateEmptyClip($"modaudio_map_{cleanName}_day", EmptyClipSizeInSamples);
             __instance._daytimeMusic.loop = true;
 
+            if (AudioEngine.LoadedMixerGroups.TryGetValue("music", out var group))
+                __instance._daytimeMusic.outputAudioMixerGroup = group;
+
             Logging.LogInfo($"Map {__instance._mapName} doesn't have daytime music: placeholder source/clip {__instance._daytimeMusic.clip} was created!");
         }
 
@@ -38,6 +44,9 @@ internal static class MapInstance_Awake
             __instance._nightMusic = __instance.gameObject.AddComponent<AudioSource>();
             __instance._nightMusic.clip = AudioClipLoader.GenerateEmptyClip($"modaudio_map_{cleanName}_night", EmptyClipSizeInSamples);
             __instance._nightMusic.loop = true;
+
+            if (AudioEngine.LoadedMixerGroups.TryGetValue("music", out var group))
+                __instance._nightMusic.outputAudioMixerGroup = group;
 
             Logging.LogInfo($"Map {__instance._mapName} doesn't have night music: placeholder source/clip {__instance._nightMusic.clip} was created!");
         }

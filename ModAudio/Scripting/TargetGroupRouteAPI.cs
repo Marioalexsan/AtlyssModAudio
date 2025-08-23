@@ -1,12 +1,12 @@
 ﻿using Jint;
 using Jint.Native;
-using Marioalexsan.ModAudio.HarmonyPatches;
 
 namespace Marioalexsan.ModAudio.Scripting;
 
-internal class TargetGroupRouteAPI(in AudioSourceState state)
+internal class TargetGroupRouteAPI(in ModAudioSource state)
 {
-    public string TargetGroup { get; set; } = state.RouteGroup ?? "";
+    public string TargetGroup { get; set; } = "___all___"; // TODO Grab last route
+    public bool SkipRoute { get; set; }
 
     public JsObject Wrap(Engine engine)
     {
@@ -15,6 +15,12 @@ internal class TargetGroupRouteAPI(in AudioSourceState state)
         wrapper.AddGetSet("targetGroup", (self, args) => TargetGroup, (self, args) =>
         {
             TargetGroup = args[0].AsString();
+            return JsValue.Undefined;
+        });
+
+        wrapper.AddGetSet("skipRoute", (self, args) => SkipRoute, (self, args) =>
+        {
+            SkipRoute = args[0].AsBoolean();
             return JsValue.Undefined;
         });
 

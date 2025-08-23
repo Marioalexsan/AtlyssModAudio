@@ -111,7 +111,7 @@ public class RouteConfig
 
                 if (fields.Length > 5)
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Too many values defined for a target clip (expected at most 4), skipping it.");
+                    Logging.LogWarning($"Line {routeStartLine}: Too many values defined for a target clip (expected at most 5), skipping it.");
                     continue;
                 }
 
@@ -243,6 +243,10 @@ public class RouteConfig
                     case "smooth_dynamic_targeting":
                         if (parsed = bool.TryParse(fields[1], out bool smoothDynamicTargeting))
                             route.SmoothDynamicTargeting = smoothDynamicTargeting;
+                        break;
+                    case "chain_route":
+                        if (parsed = bool.TryParse(fields[1], out bool allowChainRouting))
+                            route.UseChainRouting = allowChainRouting;
                         break;
                     case "replacement_weight":
                     case "weight":
@@ -386,15 +390,15 @@ public class RouteConfig
         {
             if (line.Trim().StartsWith("%id "))
             {
-                id = line.Trim()["%id ".Length..];
+                id = line.Trim()["%id ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%updatescript "))
             {
-                updateScript = line.Trim()["%updatescript ".Length..];
+                updateScript = line.Trim()["%updatescript ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%displayname "))
             {
-                displayName = line.Trim()["%displayname ".Length..];
+                displayName = line.Trim()["%displayname ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%customclipvolume "))
             {

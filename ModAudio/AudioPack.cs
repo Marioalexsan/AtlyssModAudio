@@ -1,32 +1,29 @@
 ﻿using Jint.Native.Function;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
 
+[Flags]
+public enum PackFlags : uint
+{
+    None = uint.MinValue,
+    All  = uint.MaxValue,
+
+    Enabled = 1 << 0,
+    ForceDisableScripts = 1 << 1,
+    HasEncounteredErrors = 1 << 2
+}
+
 public class AudioPack
 {
-    private bool _forceDisableScripts;
-
     public string PackPath { get; set; } = "???";
-    public bool Enabled { get; set; } = false; // Must be enabled before use
-    public bool OverrideModeEnabled { get; set; } = false;
-
-    public bool ForceDisableScripts
-    {
-        get => _forceDisableScripts;
-        set
-        {
-            if (value)
-                Logging.LogWarning($"Scripts for pack {Config.Id} are temporarily disabled!");
-
-            _forceDisableScripts = value;
-        }
-    }
-
     public AudioPackConfig Config { get; set; } = new();
 
-    public List<AudioClipLoader.IAudioStream> OpenStreams { get; } = []; // Only touch this if you plan on cleaning up the pack
+    public PackFlags Flags;
 
+
+    public List<IAudioStream> OpenStreams { get; } = []; // Only touch this if you plan on cleaning up the pack
     public Dictionary<string, AudioClip> ReadyClips { get; } = [];
 
     // These clips are loaded / streamed when needed
@@ -62,5 +59,27 @@ public class AudioPack
 
         clip = null;
         return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void SetFlag(PackFlags flag) => Flags |= flag;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ClearFlag(PackFlags flag) => Flags &= ~flag;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool HasFlag(PackFlags flag) => Flags.HasFlag(flag);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void AssignFlag(PackFlags flag, bool shouldBeSet)
+    {
+        if (shouldBeSet)
+        {
+            SetFlag(flag);
+        }
+        else
+        {
+            ClearFlag(flag);
+        }
     }
 }

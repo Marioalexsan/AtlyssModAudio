@@ -14,12 +14,18 @@ internal static class ModAudioModule
 
     public static JsObject WrapContextProvider(Engine engine)
     {
+        // Note: The API provided by the "context" import is experimental / is expected to have breaking changes
+        // There are no guarantees on whenever these values will still be here or have the same meaning in future updates, so be careful
+
         var wrapper = new JsObject(engine);
 
         wrapper.AddGet("mapName", (self, args) => ContextAPI.MapName);
         wrapper.AddGet("mapSubregion", (self, args) => ContextAPI.MapSubregion);
-        wrapper.AddGet("enemiesTargetingPlayer", (self, args) => ContextAPI.EnemiesTargetingPlayer);
+        wrapper.AddGet("aggroedEnemies", (self, args) => ObjectWrapper.Create(engine, ContextAPI.AggroedEnemies));
         wrapper.AddGet("secondsSinceGameStart", (self, args) => ContextAPI.SecondsSinceGameStart);
+        wrapper.AddGet("deltaTime", (self, args) => ContextAPI.DeltaTime);
+        wrapper.AddGet("mainPlayerLastPvpEventAt", (self, args) => ContextAPI.MainPlayerLastPvpEventAt);
+        wrapper.AddGet("lastPlayerPvp", (self, args) => ContextAPI.LastPlayerPvp != null ? ObjectWrapper.Create(engine, ContextAPI.LastPlayerPvp) : JsValue.Null);
 
         wrapper.PreventExtensions();
 

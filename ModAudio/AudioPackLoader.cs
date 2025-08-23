@@ -1,7 +1,6 @@
 ﻿using BepInEx;
 using Jint;
 using Jint.Native.Function;
-using System.IO;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -13,9 +12,7 @@ public static class AudioPackLoader
 
     public const float OneMB = 1024f * 1024f;
 
-    public const string JSModuleName = "modaudio.js";
-    public const string AudioPackConfigNameJson = "modaudio.config.json";
-    public const string AudioPackConfigNameToml = "modaudio.config.toml";
+    public const string RoutesScriptName = "__routes.js";
     public const string RoutesConfigName = "__routes.txt";
 
     public const int FileSizeLimitForLoading = 1024 * 1024;
@@ -60,12 +57,6 @@ public static class AudioPackLoader
         var index = cleanPath.IndexOf(RootSep);
         var removedRoot = index == -1 ? cleanPath : cleanPath[(index + RootSep.Length)..];
 
-        if (removedRoot.EndsWith(AudioPackConfigNameJson))
-            return removedRoot[..^(AudioPackConfigNameJson.Length + 1)];
-
-        if (removedRoot.EndsWith(AudioPackConfigNameToml))
-            return removedRoot[..^(AudioPackConfigNameToml.Length + 1)];
-
         if (removedRoot.EndsWith(RoutesConfigName))
             return removedRoot[..^(RoutesConfigName.Length + 1)];
 
@@ -103,7 +94,10 @@ public static class AudioPackLoader
             var clampedWeight = Mathf.Clamp(route.ReplacementWeight, ModAudio.MinWeight, ModAudio.MaxWeight);
 
             if (clampedWeight != route.ReplacementWeight)
+            {
                 Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
+            }
 
             route.ReplacementWeight = clampedWeight;
 
@@ -112,7 +106,10 @@ public static class AudioPackLoader
                 clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
 
                 if (clampedWeight != selection.Weight)
+                {
                     Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                    pack.SetFlag(PackFlags.HasEncounteredErrors);
+                }
 
                 selection.Weight = clampedWeight;
             }
@@ -122,7 +119,10 @@ public static class AudioPackLoader
                 clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
 
                 if (clampedWeight != selection.Weight)
+                {
                     Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                    pack.SetFlag(PackFlags.HasEncounteredErrors);
+                }
 
                 selection.Weight = clampedWeight;
             }
@@ -130,6 +130,7 @@ public static class AudioPackLoader
             if (!string.IsNullOrEmpty(route.TargetGroupScript) && !pack.ScriptMethods.ContainsKey(route.TargetGroupScript))
             {
                 Logging.LogWarning(Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
                 route.TargetGroupScript = "";
             }
         }
@@ -158,15 +159,8 @@ public static class AudioPackLoader
 
     private static AudioPack? SearchAndLoadPack(List<AudioPack> existingPacks, string folderPath)
     {
-        var tomlPath = Path.Combine(folderPath, AudioPackConfigNameToml);
-        if (File.Exists(tomlPath))
-            return LoadAudioPack(existingPacks, tomlPath, AudioPackConfig.ReadJSON);
-
-        var jsonPath = Path.Combine(folderPath, AudioPackConfigNameJson);
-        if (File.Exists(jsonPath))
-            return LoadAudioPack(existingPacks, jsonPath, AudioPackConfig.ReadTOML);
-
         var routesFormatPath = Path.Combine(folderPath, RoutesConfigName);
+
         if (File.Exists(routesFormatPath))
             return LoadAudioPack(existingPacks, routesFormatPath, AudioPackConfig.ReadRouteConfig);
 
@@ -234,6 +228,7 @@ public static class AudioPackLoader
             if (pack.ReadyClips.Any(x => x.Value.name == clipData.Name))
             {
                 Logging.LogWarning(Texts.DuplicateClipId(clipData.Path, clipData.Name));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
 
@@ -242,25 +237,38 @@ public static class AudioPackLoader
             if (!clipPath.StartsWith(rootPath))
             {
                 Logging.LogWarning(Texts.InvalidPackPath(clipData.Path, clipData.Name));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
 
-            if (clipData.IgnoreClipExtension)
+
+            bool gotExtension = AudioClipLoader.SupportedExtensions.Any(clipPath.EndsWith);
+
+            if (!gotExtension)
             {
-                // Search for a file that is supported
+                // If it doesn't end explicitly with an extension, check if a related audio file exists
                 foreach (var ext in AudioClipLoader.SupportedStreamExtensions)
                 {
                     if (File.Exists(clipPath + ext))
                     {
                         clipPath += ext;
+                        gotExtension = true;
                         break;
                     }
                 }
             }
 
-            if (!AudioClipLoader.SupportedExtensions.Any(clipPath.EndsWith))
+            if (!gotExtension)
             {
                 Logging.LogWarning(Texts.UnsupportedAudioFile(clipData.Path, clipData.Name));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
+                continue;
+            }
+
+            if (!File.Exists(clipPath))
+            {
+                Logging.LogWarning(Texts.AudioFileNotFound(clipData.Path, clipData.Name));
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
 
@@ -298,6 +306,7 @@ public static class AudioPackLoader
             {
                 Logging.LogWarning($"Failed to load {clipData.Name} from {ReplaceRootPath(clipPath)}!");
                 Logging.LogWarning($"Exception: {e}");
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
             }
         }
     }
@@ -306,7 +315,7 @@ public static class AudioPackLoader
     {
         try
         {
-            var scriptPath = Path.Combine(Path.GetDirectoryName(path), JSModuleName);
+            var scriptPath = Path.Combine(Path.GetDirectoryName(path), RoutesScriptName);
 
             if (!File.Exists(scriptPath))
                 return;
@@ -329,7 +338,7 @@ public static class AudioPackLoader
             Logging.LogWarning($"Failed to read audio pack scripts for {ReplaceRootPath(path)}.");
             Logging.LogWarning(e.ToString());
             pack.ScriptMethods.Clear();
-            pack.ForceDisableScripts = true;
+            pack.SetFlag(PackFlags.ForceDisableScripts | PackFlags.HasEncounteredErrors);
         }
     }
 }

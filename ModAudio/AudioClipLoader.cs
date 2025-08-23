@@ -1,7 +1,8 @@
-﻿using NAudio.Wave;
-using System.IO;
+﻿using Mirror;
+using NAudio.Wave;
 using UnityEngine;
-using UnityEngine.Networking;
+using UnityEngine.Profiling;
+using UnityEngine.TextCore.Text;
 
 namespace Marioalexsan.ModAudio;
 
@@ -36,71 +37,17 @@ public static class AudioClipLoader
     /// </summary>
     public static AudioClip LoadFromFile(string clipName, string path, float volumeModifier)
     {
-        if (path.EndsWith(".ogg"))
-        {
-            using var stream = File.OpenRead(path);
-            return LoadOgg(clipName, stream);
-        }
+        using var stream = GetStream(path);
+        stream.VolumeModifier = volumeModifier;
 
-        if (path.EndsWith(".mp3"))
-        {
-            using var stream = File.OpenRead(path);
-            return LoadMp3(clipName, stream);
-        }
+        var clip = AudioClip.Create(clipName, stream.TotalFrames, stream.ChannelsPerFrame, stream.Frequency, false);
 
-        if (path.EndsWith(".wav"))
-        {
-            using var stream = File.OpenRead(path);
-            return LoadWav(clipName, stream);
-        }
+        var totalSamples = stream.TotalFrames * stream.ChannelsPerFrame;
 
-        throw new NotImplementedException("The given file format isn't supported for loading.");
-    }
+        var buffer = new float[totalSamples];
 
-    private static AudioClip LoadOgg(string clipName, Stream stream)
-    {
-        using var reader = new NVorbis.VorbisReader(stream);
-
-        var clip = AudioClip.Create(clipName, (int)reader.TotalSamples, reader.Channels, reader.SampleRate, false);
-
-        var samples = new float[reader.TotalSamples * reader.Channels];
-        reader.ReadSamples(samples, 0, samples.Length);
-        clip.SetData(samples, 0);
-
-        return clip;
-    }
-
-    private static AudioClip LoadWav(string clipName, Stream stream)
-    {
-        using var reader = new WaveFileReader(stream);
-
-        var clip = AudioClip.Create(clipName, (int)reader.SampleCount, reader.WaveFormat.Channels, reader.WaveFormat.SampleRate, false);
-
-        var provider = reader.ToSampleProvider();
-
-        var samples = new float[(int)reader.SampleCount * reader.WaveFormat.Channels];
-
-        provider.Read(samples, 0, samples.Length);
-        clip.SetData(samples, 0);
-
-        return clip;
-    }
-
-    private static AudioClip LoadMp3(string clipName, Stream stream)
-    {
-        using var reader = new Mp3FileReader(stream);
-
-        var totalSamples = (int)(reader.Length * 8 / reader.WaveFormat.BitsPerSample);
-
-        var clip = AudioClip.Create(clipName, totalSamples, reader.WaveFormat.Channels, reader.WaveFormat.SampleRate, false);
-
-        var provider = reader.ToSampleProvider();
-
-        var samples = new float[totalSamples * reader.WaveFormat.Channels];
-
-        provider.Read(samples, 0, samples.Length);
-        clip.SetData(samples, 0);
-
+        stream.ReadSamples(buffer);
+        clip.SetData(buffer, 0);
         return clip;
     }
 
@@ -109,130 +56,128 @@ public static class AudioClipLoader
     /// </summary>
     public static AudioClip StreamFromFile(string clipName, string path, float volumeModifier, out IAudioStream openedStream)
     {
-        IAudioStream? stream = null;
+        var stream = openedStream = GetStream(path);
+        stream.VolumeModifier = volumeModifier;
 
+        return AudioClip.Create(clipName, stream.TotalFrames, stream.ChannelsPerFrame, stream.Frequency, true, stream.ReadSamples, stream.SetSamplePosition);
+    }
+
+    private static IAudioStream GetStream(string path)
+    {
         if (path.EndsWith(".ogg"))
-        {
-            stream = new OggStream(File.OpenRead(path)) { VolumeModifier = volumeModifier };
-        }
+            return new OggStream(File.OpenRead(path));
 
         if (path.EndsWith(".mp3"))
-        {
-            stream = new Mp3Stream(File.OpenRead(path)) { VolumeModifier = volumeModifier };
-        }
+            return new Mp3Stream(File.OpenRead(path));
 
         if (path.EndsWith(".wav"))
-        {
-            stream = new WavStream(File.OpenRead(path)) { VolumeModifier = volumeModifier };
-        }
+            return new WavStream(File.OpenRead(path));
 
-        if (stream == null)
-            throw new NotImplementedException("The given file format isn't supported for streaming.");
+        throw new NotImplementedException("The given file format isn't supported for streaming.");
+    }
+}
 
-        openedStream = stream;
-        return AudioClip.Create(clipName, stream.TotalFrames, stream.ChannelsPerFrame, stream.Frequency, true, stream.OnAudioRead, stream.OnAudioSetPosition);
+public interface IAudioStream : IDisposable
+{
+    float VolumeModifier { get; set; }
+
+    int TotalFrames { get; }
+    int ChannelsPerFrame { get; }
+    int Frequency { get; }
+
+    void ReadSamples(float[] samples); // Unity seems to be calling this with float[4096] (at least it did in 2021.3)
+    void SetSamplePosition(int newPosition);
+}
+
+public class OggStream(Stream stream) : IAudioStream
+{
+    private readonly NVorbis.VorbisReader _reader = new NVorbis.VorbisReader(stream);
+
+    public float VolumeModifier { get; set; } = 1f;
+
+    public int TotalFrames => (int)_reader.TotalSamples;
+    public int ChannelsPerFrame => _reader.Channels;
+    public int Frequency => _reader.SampleRate;
+
+    public void ReadSamples(float[] samples)
+    {
+        _reader.ReadSamples(samples, 0, samples.Length);
+        Utils.MultiplyFloatArray(samples, VolumeModifier);
     }
 
-    public interface IAudioStream : IDisposable
+    public void SetSamplePosition(int newPosition)
     {
-        int TotalFrames { get; }
-        int ChannelsPerFrame { get; }
-        int Frequency { get; }
-
-        void OnAudioRead(float[] samples); // Unity seems to be calling this with float[4096]
-        void OnAudioSetPosition(int newPosition);
+        _reader.SamplePosition = newPosition;
     }
 
-    private class OggStream(Stream stream) : IAudioStream
+    public void Dispose()
     {
-        private readonly NVorbis.VorbisReader _reader = new NVorbis.VorbisReader(stream);
+        _reader.Dispose();
+    }
+}
 
-        public float VolumeModifier = 1f;
+public class WavStream : IAudioStream
+{
+    public WavStream(Stream stream)
+    {
+        _reader = new WaveFileReader(stream);
+        _provider = _reader.ToSampleProvider();
+    }
+    private readonly WaveFileReader _reader;
+    private readonly ISampleProvider _provider;
 
-        public int TotalFrames => (int)_reader.TotalSamples;
-        public int ChannelsPerFrame => _reader.Channels;
-        public int Frequency => _reader.SampleRate;
+    public float VolumeModifier { get; set; } = 1f;
 
-        public void OnAudioRead(float[] samples)
-        {
-            _reader.ReadSamples(samples, 0, samples.Length);
-            Utils.MultiplyFloatArray(samples, VolumeModifier);
-        }
+    public int TotalFrames => (int)_reader.SampleCount;
+    public int ChannelsPerFrame => _reader.WaveFormat.Channels;
+    public int Frequency => _reader.WaveFormat.SampleRate;
 
-        public void OnAudioSetPosition(int newPosition)
-        {
-            _reader.SamplePosition = newPosition;
-        }
-
-        public void Dispose()
-        {
-            _reader.Dispose();
-        }
+    public void ReadSamples(float[] samples)
+    {
+        _provider.Read(samples, 0, samples.Length);
+        Utils.MultiplyFloatArray(samples, VolumeModifier);
     }
 
-    private class WavStream : IAudioStream
+    public void SetSamplePosition(int newPosition)
     {
-        public WavStream(Stream stream)
-        {
-            _reader = new WaveFileReader(stream);
-            _provider = _reader.ToSampleProvider();
-        }
-        private readonly WaveFileReader _reader;
-        private readonly ISampleProvider _provider;
-
-        public float VolumeModifier = 1f;
-
-        public int TotalFrames => (int)_reader.SampleCount;
-        public int ChannelsPerFrame => _reader.WaveFormat.Channels;
-        public int Frequency => _reader.WaveFormat.SampleRate;
-
-        public void OnAudioRead(float[] samples)
-        {
-            _provider.Read(samples, 0, samples.Length);
-            Utils.MultiplyFloatArray(samples, VolumeModifier);
-        }
-
-        public void OnAudioSetPosition(int newPosition)
-        {
-            _reader.Position = newPosition * _reader.BlockAlign;
-        }
-
-        public void Dispose()
-        {
-            _reader.Dispose();
-        }
+        _reader.Position = newPosition * _reader.BlockAlign;
     }
 
-    private class Mp3Stream : IAudioStream
+    public void Dispose()
     {
-        public Mp3Stream(Stream stream)
-        {
-            _reader = new Mp3FileReader(stream);
-            _provider = _reader.ToSampleProvider();
-        }
-        private readonly Mp3FileReader _reader;
-        private readonly ISampleProvider _provider;
+        _reader.Dispose();
+    }
+}
 
-        public float VolumeModifier = 1f;
+public class Mp3Stream : IAudioStream
+{
+    public Mp3Stream(Stream stream)
+    {
+        _reader = new Mp3FileReader(stream);
+        _provider = _reader.ToSampleProvider();
+    }
+    private readonly Mp3FileReader _reader;
+    private readonly ISampleProvider _provider;
 
-        public int TotalFrames => (int)(_reader.Length * 8 / ChannelsPerFrame / _reader.WaveFormat.BitsPerSample);
-        public int ChannelsPerFrame => _reader.WaveFormat.Channels;
-        public int Frequency => _reader.WaveFormat.SampleRate;
+    public float VolumeModifier { get; set; } = 1f;
 
-        public void OnAudioRead(float[] samples)
-        {
-            _provider.Read(samples, 0, samples.Length);
-            Utils.MultiplyFloatArray(samples, VolumeModifier);
-        }
+    public int TotalFrames => (int)(_reader.Length * 8 / ChannelsPerFrame / _reader.WaveFormat.BitsPerSample);
+    public int ChannelsPerFrame => _reader.WaveFormat.Channels;
+    public int Frequency => _reader.WaveFormat.SampleRate;
 
-        public void OnAudioSetPosition(int newPosition)
-        {
-            _reader.Position = newPosition * _reader.BlockAlign;
-        }
+    public void ReadSamples(float[] samples)
+    {
+        _provider.Read(samples, 0, samples.Length);
+        Utils.MultiplyFloatArray(samples, VolumeModifier);
+    }
 
-        public void Dispose()
-        {
-            _reader.Dispose();
-        }
+    public void SetSamplePosition(int newPosition)
+    {
+        _reader.Position = newPosition * _reader.BlockAlign;
+    }
+
+    public void Dispose()
+    {
+        _reader.Dispose();
     }
 }

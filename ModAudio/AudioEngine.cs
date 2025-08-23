@@ -1,24 +1,38 @@
 ﻿using Jint;
-using Jint.Native;
 using Jint.Native.Function;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using UnityEngine;
+using UnityEngine.Audio;
 
 namespace Marioalexsan.ModAudio;
 
 internal static class AudioEngine
 {
+    public const string DefaultClipKeyword = "___default___";
+    public const string EmptyClipKeyword = "___nothing___";
+    public const string ErrorClipKeyword = "!!! error !!!";
+
     internal static Jint.Engine ScriptEngine = ScriptingEngine.SetupJint();
+
+    private const int MaxChainRoutes = 4;
 
     private static readonly System.Random RNG = new();
     private static readonly System.Diagnostics.Stopwatch Watch = new();
 
-    private static readonly Dictionary<AudioSource?, AudioSourceState> TrackedSources = new(8192);
-    private static readonly HashSet<AudioSource?> TrackedPlayOnAwakeSources = [];
+    private static readonly Dictionary<AudioSource, ModAudioSource> TrackedSources = new(8192);
+    private static readonly HashSet<AudioSource> TrackedPlayOnAwakeSources = [];
 
     public static List<AudioPack> AudioPacks { get; } = [];
-    public static IEnumerable<AudioPack> EnabledPacks => AudioPacks.Where(x => x.Enabled);
+    public static IEnumerable<AudioPack> EnabledPacks => AudioPacks.Where(x => x.HasFlag(PackFlags.Enabled));
+
+    public static Dictionary<string, AudioClip> LoadedVanillaClips = [];
+    public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
+
+    // Temporary data for routing
+    private static readonly Dictionary<Route, TargetGroupRouteAPI> CachedRoutingTargetGroupData = [];
 
     private static AudioClip EmptyClip
     {
@@ -29,26 +43,27 @@ internal static class AudioEngine
             // This is why we need to use a minimum size (a few game frames at least).
 
             const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
-            return _emptyClip ??= AudioClipLoader.GenerateEmptyClip("___nothing___", EmptyClipSizeInSamples);
+            return _emptyClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
         }
     }
     private static AudioClip? _emptyClip;
 
-    public static bool IsVolumeLocked(AudioSource source) => TrackedSources.TryGetValue(source, out var state) && state.VolumeLock;
-
-    public static void PlayCustomEvent(AudioClip clip, AudioSource target)
+    // This is not an "actual" clip, but should be used to
+    // 1. Avoid null references, and
+    // 2. Indicate that an error state was encountered (clip failed to load, etc.)
+    private static AudioClip ErrorClip
     {
-        var source = CreateOneShotFromSource(target);
-
-        source.volume = 1f;
-        source.pitch = 1f;
-        source.panStereo = 0f;
-        source.clip = clip;
-
-        TrackedSources[source] = TrackedSources[source] with { IsCustomEvent = true };
-
-        source.Play();
+        get
+        {
+            const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
+            return _errorClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
+        }
     }
+    private static AudioClip? _errorClip;
+
+    public static bool IsVolumeLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.VolumeLock) ?? false;
+    public static bool IsPitchLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.PitchLock) ?? false;
+    public static bool IsLoopLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.LoopLock) ?? false;
 
     public static void HardReload() => Reload(hardReload: true);
 
@@ -70,6 +85,13 @@ internal static class AudioEngine
                 Logging.LogInfo("Reloading scripting engine...");
                 ScriptEngine?.Dispose();
                 ScriptEngine = ScriptingEngine.SetupJint();
+
+                Logging.LogInfo("Clearing loaded vanilla clips...");
+                LoadedVanillaClips.Clear();
+
+                LoadedMixerGroups.Clear();
+
+                LoadedMixerGroups = SettingsManager._current._masterMixer.FindMatchingGroups("").ToDictionary(x => x.name.ToLower());
             }
 
             // I like cleaning audio sources
@@ -81,9 +103,9 @@ internal static class AudioEngine
 
                 Utils.CachedForeach(
                     TrackedSources,
-                    static (in KeyValuePair<AudioSource?, AudioSourceState> source) =>
+                    static (in KeyValuePair<AudioSource, ModAudioSource> source) =>
                     {
-                        if (source.Value.IsOneShotSource)
+                        if (source.Value.HasFlag(AudioFlags.IsDedicatedOneShotSource))
                         {
                             TrackedSources.Remove(source.Key);
                             UnityEngine.Object.Destroy(source.Key);
@@ -104,20 +126,13 @@ internal static class AudioEngine
                     audio.Stop();
                 }
 
-                if (TrackedSources.TryGetValue(audio, out var state))
-                    TrackedSources[audio] = state with { VolumeLock = false };
+                GetModAudioSourceIfExists(audio)?.ClearFlag(AudioFlags.VolumeLock);
             }
 
             // Restore original state
             foreach (var source in TrackedSources)
             {
-                if (source.Key != null)
-                {
-                    source.Key.clip = source.Value.Clip;
-                    source.Key.volume = source.Value.Volume;
-                    source.Key.pitch = source.Value.Pitch;
-                    source.Key.loop = source.Value.Loop;
-                }
+                source.Value.RevertSource();
             }
 
             TrackedSources.Clear();
@@ -141,9 +156,9 @@ internal static class AudioEngine
             Logging.LogInfo("Preloading audio data...");
             foreach (var pack in AudioPacks)
             {
-                if (pack.Enabled && pack.PendingClipsToLoad.Count > 0)
+                if (pack.HasFlag(PackFlags.Enabled) && pack.PendingClipsToLoad.Count > 0)
                 {
-                    // If a pack is enabled, we should preload all of the in-memory clips
+                    // If a selectedPack is enabled, we should preload all of the in-memory clips
                     // Opening a ton of streams at the start is not great though, so those remain on-demand
 
                     var clipsToPreload = pack.PendingClipsToLoad.Keys.ToArray();
@@ -222,123 +237,108 @@ internal static class AudioEngine
         }
     }
 
-    private static void RestoreAudioSource(AudioSource target)
-    {
-        if (TrackedSources.TryGetValue(target, out var state))
-        {
-            TrackedSources[target] = TrackedSources[target] with { VolumeLock = false };
-
-            target.clip = state.Clip;
-            target.volume = state.Volume;
-            target.pitch = state.Pitch;
-            target.loop = state.Loop;
-        }
-
-        TrackedSources.Remove(target);
-    }
-
     private static void UpdateDynamicTargeting()
     {
+        CachedRoutingTargetGroupData.Clear();
         Utils.CachedForeach(
             TrackedSources,
-            static (in KeyValuePair<AudioSource?, AudioSourceState> source) =>
+            static (in KeyValuePair<AudioSource, ModAudioSource> pair) =>
             {
-                if (source.Key != null && source.Value.UsesDynamicTargeting)
-                {
-                    bool success = UpdateDynamicTargeting(source.Key, source.Value);
+                var source = pair.Value;
 
+                if (source.Audio != null && source.HasFlag(AudioFlags.ShouldUpdateDynamicTargeting))
+                {
                     // Disable dynamic targeting in case something wrong happened
-                    if (!success)
-                        TrackedSources[source.Key] = TrackedSources[source.Key] with { UsesDynamicTargeting = false };
+                    if (!UpdateDynamicTargeting(source))
+                        source.ClearFlag(AudioFlags.ShouldUpdateDynamicTargeting);
                 }
             }
         );
+        CachedRoutingTargetGroupData.Clear();
     }
 
-    private static bool UpdateDynamicTargeting(AudioSource source, in AudioSourceState state)
+    private static bool UpdateDynamicTargeting(ModAudioSource source)
     {
-        AudioPack? targetPack = null;
+        bool groupsMismatched = false;
+        bool useSmoothing = false;
 
-        foreach (var pack in EnabledPacks)
+        for (int i = 0; i < source.RouteCount; i++)
         {
-            if (pack.Config.Id == state.RouteAudioPackId)
+            var routeData = source.GetRoute(i);
+
+            // Use smoothing if any routes demand it
+            useSmoothing = useSmoothing || routeData.Route.SmoothDynamicTargeting;
+
+            if (routeData.Route.EnableDynamicTargeting)
             {
-                targetPack = pack;
-                break;
-            }    
+                var routeApi = GetCachedTargetGroup(source, routeData.AudioPack, routeData.Route);
+
+                if (routeApi.SkipRoute || routeApi.TargetGroup != routeData.TargetGroup)
+                {
+                    groupsMismatched = true;
+                }
+            }
         }
 
-        if (targetPack == null || state.RouteAudioPackRouteIndex < 0 || state.RouteAudioPackRouteIndex >= targetPack.Config.Routes.Count)
-        {
-            Logging.LogWarning($"An audio pack source {source.clip?.name} for pack {state.RouteAudioPackId} and route {state.RouteAudioPackRouteIndex} couldn't find its own pack or route!");
-            return false;
-        }
+        const bool UseVolumeLock = true;
 
-        Route route = targetPack.Config.Routes[state.RouteAudioPackRouteIndex];
-
-        var routeApi = new TargetGroupRouteAPI(state);
-
-        ExecuteTargetGroup(targetPack, route, routeApi);
-
-        var updatedGroup = routeApi.TargetGroup;
-
-        if (updatedGroup == "___skip___")
-            return true; // Ignore skips
-
-        if (updatedGroup != state.RouteGroup)
+        if (groupsMismatched)
         {
             bool shouldSwitch = false;
 
-            if (route.SmoothDynamicTargeting)
+            if (useSmoothing)
             {
-                TrackedSources[source] = TrackedSources[source] with { IsSwappingTargets = true, VolumeLock = false };
+                source.SetFlag(AudioFlags.IsSwappingTargets);
+                source.ClearFlag(AudioFlags.VolumeLock);
 
-                var newVolume = Mathf.Lerp(source.volume, 0f, Time.deltaTime * 2f);
-                source.volume = newVolume;
+                var newVolume = Mathf.Lerp(source.Audio.volume, 0f, Time.deltaTime * 4f);
+                source.Audio.volume = newVolume;
 
-                TrackedSources[source] = TrackedSources[source] with { VolumeLock = true };
+                source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
 
                 if (newVolume <= 0.05f)
                 {
-                    TrackedSources[source] = TrackedSources[source] with { RouteGroup = updatedGroup };
                     shouldSwitch = true;
                 }
+            }
+            else
+            {
+                shouldSwitch = true;
             }
 
             if (shouldSwitch)
             {
-                bool wasPlaying = source.isPlaying;
-                source.Stop();
+                bool wasPlaying = source.Audio.isPlaying;
+                source.Audio.Stop();
 
-                RestoreAudioSource(source);
-                TrackSource(source);
-                Route(source);
+                Route(source, true);
 
-                if (route.SmoothDynamicTargeting)
+                if (useSmoothing)
                 {
-                    source.volume = 0f;
-                    TrackedSources[source] = TrackedSources[source] with { IsSwappingTargets = true, VolumeLock = true };
+                    source.Audio.volume = 0f;
+                    source.SetFlag(AudioFlags.IsSwappingTargets);
+                    source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
                 }
 
                 if (wasPlaying)
-                    source.Play();
+                    source.Audio.Play();
             }
         }
-        else if (TrackedSources[source].IsSwappingTargets)
+        else if (source.HasFlag(AudioFlags.IsSwappingTargets))
         {
-            TrackedSources[source] = TrackedSources[source] with { VolumeLock = false };
+            source.ClearFlag(AudioFlags.VolumeLock);
 
-            var newVolume = Mathf.Lerp(source.volume, TrackedSources[source].AppliedVolume, Time.deltaTime * 2f);
-            source.volume = newVolume;
+            var newVolume = Mathf.Lerp(source.Audio.volume, source.AppliedState.Volume, Time.deltaTime * 4f);
+            source.Audio.volume = newVolume;
 
-            if (Math.Abs(source.volume - TrackedSources[source].AppliedVolume) <= 0.05f)
+            if (Math.Abs(source.Audio.volume - source.AppliedState.Volume) <= 0.05f)
             {
-                source.volume = TrackedSources[source].AppliedVolume;
-                TrackedSources[source] = TrackedSources[source] with { IsSwappingTargets = false };
+                source.Audio.volume = source.AppliedState.Volume;
+                source.ClearFlag(AudioFlags.IsSwappingTargets);
             }
             else
             {
-                TrackedSources[source] = TrackedSources[source] with { VolumeLock = true };
+                source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
             }
         }
 
@@ -350,9 +350,9 @@ internal static class AudioEngine
         // Cleanup dead play on awake sounds
         Utils.CachedForeach(
             TrackedPlayOnAwakeSources,
-            static (in AudioSource? source) =>
+            static (in AudioSource source) =>
             {
-                if (source == null)
+                if (source.IsNullOrDestroyed())
                 {
                     TrackedPlayOnAwakeSources.Remove(source);
                 }
@@ -362,13 +362,13 @@ internal static class AudioEngine
         // Cleanup stale stuff
         Utils.CachedForeach(
             TrackedSources,
-            static (in KeyValuePair<AudioSource?, AudioSourceState> source) =>
+            static (in KeyValuePair<AudioSource, ModAudioSource> source) =>
             {
-                if (source.Key == null)
+                if (source.Key.IsNullOrDestroyed())
                 {
                     TrackedSources.Remove(source.Key);
                 }
-                else if (source.Value.IsOneShotSource && !source.Key.isPlaying)
+                else if (source.Value.HasFlag(AudioFlags.IsDedicatedOneShotSource) && !source.Key.isPlaying)
                 {
                     TrackedSources.Remove(source.Key);
                     AudioStopped(source.Key, false);
@@ -378,27 +378,37 @@ internal static class AudioEngine
         );
     }
 
-    private static void TrackSource(AudioSource source)
+    private static ModAudioSource? GetModAudioSourceIfExists(AudioSource source)
     {
-        if (!TrackedSources.ContainsKey(source))
+        if (TrackedSources.TryGetValue(source, out var state))
+            return state;
+
+        return null;
+    }
+
+    private static ModAudioSource GetOrCreateModAudioSource(AudioSource source)
+    {
+        if (TrackedSources.TryGetValue(source, out var state))
+            return state;
+
+        TrackedSources.Add(source, state = new(source)
         {
-            TrackedSources.Add(source, new()
+            InitialState =
             {
-                AppliedClip = source.clip,
                 Clip = source.clip,
                 Pitch = source.pitch,
                 Loop = source.loop,
-                Volume = source.volume,
-                AppliedPitch = source.pitch,
-                AppliedVolume = source.volume,
-                AppliedLoop = source.loop
-            });
-        }
+                Volume = source.volume
+            }
+        });
+
+        state.AppliedState = state.InitialState;
+        return state;
     }
 
-    private static AudioSource CreateOneShotFromSource(AudioSource source)
+    private static ModAudioSource CreateOneShotFromSource(ModAudioSource state)
     {
-        GameObject targetObject = source.gameObject;
+        GameObject targetObject = state.Audio.gameObject;
 
         // Note: some sound effects are played on particle systems that disable themselves after they're played
         // We need to check if that is the case, and move the target object somewhere higher in the hierarchy
@@ -420,15 +430,16 @@ internal static class AudioEngine
         }
         while (parentsToGoThrough-- > 0);
 
-        var oneShotSource = source.CreateCloneOnTarget(targetObject);
+        var oneShotSource = state.Audio.CreateCloneOnTarget(targetObject);
 
         oneShotSource.playOnAwake = false; // This should be false for one shot sources, but whatever
         oneShotSource.loop = false; // Otherwise this won't play one-shot
 
-        TrackSource(oneShotSource);
-        TrackedSources[oneShotSource] = TrackedSources[oneShotSource] with { IsOneShotSource = true, OneShotOrigin = source };
+        var createdState = GetOrCreateModAudioSource(oneShotSource);
+        createdState.SetFlag(AudioFlags.IsDedicatedOneShotSource);
+        createdState.OneShotOrigin = state.Audio;
 
-        return oneShotSource;
+        return createdState;
     }
 
     public static bool OneShotClipPlayed(AudioClip clip, AudioSource source, float volumeScale)
@@ -437,19 +448,16 @@ internal static class AudioEngine
         {
             // Move to a dedicated audio source for better control. Note: This is likely overkill and might mess with other mods?
 
-            var oneShotSource = CreateOneShotFromSource(source);
-            oneShotSource.volume *= volumeScale;
-            oneShotSource.clip = clip;
+            var state = GetOrCreateModAudioSource(source);
 
-            TrackedSources[oneShotSource] = TrackedSources[oneShotSource] with
-            {
-                Clip = clip,
-                AppliedClip = oneShotSource.clip,
-                Volume = oneShotSource.volume,
-                AppliedVolume = oneShotSource.volume,
-            };
+            var oneShot = CreateOneShotFromSource(state);
+            oneShot.Audio.volume *= volumeScale;
+            oneShot.Audio.clip = clip;
 
-            oneShotSource.Play();
+            state.InitialState.Clip = oneShot.Audio.clip;
+            state.InitialState.Volume = oneShot.Audio.volume;
+
+            oneShot.Audio.Play();
 
             return false;
         }
@@ -467,19 +475,19 @@ internal static class AudioEngine
         }
     }
 
-    private static void LogAudio(AudioSource source)
+    private static void LogAudio(ModAudioSource source)
     {
         float distance = float.MinValue;
 
         if (ModAudio.Plugin.UseMaxDistanceForLogging.Value && (bool)Player._mainPlayer)
         {
-            distance = Vector3.Distance(Player._mainPlayer.transform.position, source.transform.position);
+            distance = Vector3.Distance(Player._mainPlayer.transform.position, source.Audio.transform.position);
 
             if (distance > ModAudio.Plugin.MaxDistanceForLogging.Value)
                 return;
         }
 
-        var groupName = source.outputAudioMixerGroup?.name?.ToLower() ?? "(null)"; // This can be null, apparently...
+        var groupName = source.Audio.outputAudioMixerGroup?.name?.ToLower() ?? "(null)"; // This can be null, apparently...
 
         if (!ModAudio.Plugin.LogAmbience.Value && groupName == "ambience")
             return;
@@ -496,104 +504,45 @@ internal static class AudioEngine
         if (!ModAudio.Plugin.LogVoice.Value && groupName == "voice")
             return;
 
-        var originalClipName = TrackedSources[source].Clip?.name ?? "(null)";
-        var currentClipName = source.clip?.name ?? "(null)";
-        var clipChanged = TrackedSources[source].Clip != source.clip;
-
-        if (TrackedSources[source].IsCustomEvent && !clipChanged && !ModAudio.Plugin.AlwaysLogCustomEventsPlayed.Value)
-            return; // Skip logging custom events that do nothing (including playing the "default" sound, which is empty)
-
-        if (TrackedSources[source].JustUsedDefaultClip)
-        {
-            // Needs a special case for display purposes, since the clip name is the same
-            clipChanged = true;
-            currentClipName = "___default___";
-        }
-
-        var originalVolume = TrackedSources[source].Volume;
-        var currentVolume = TrackedSources[source].AppliedVolume;
-        var volumeChanged = originalVolume != currentVolume;
-
-        var originalPitch = TrackedSources[source].Pitch;
-        var currentPitch = TrackedSources[source].AppliedPitch;
-        var pitchChanged = originalPitch != currentPitch;
-
-        var clipDisplay = clipChanged ? $"{originalClipName} > {currentClipName}" : originalClipName;
-        var volumeDisplay = volumeChanged ? $"{originalVolume:F2} > {currentVolume:F2}" : $"{originalVolume:F2}";
-        var pitchDisplay = pitchChanged ? $"{originalPitch:F2} > {currentPitch:F2}" : $"{originalPitch:F2}";
-
-        var messageDisplay = $"Clip {clipDisplay} Src {source.name} Vol {volumeDisplay} Pit {pitchDisplay} AudGrp {groupName}";
-
-        if (!string.IsNullOrWhiteSpace(TrackedSources[source].RouteGroup))
-            messageDisplay += $" RouteGrp {TrackedSources[source].RouteGroup}";
-
-        if (distance != float.MinValue)
-            messageDisplay += $" Dst {distance:F2}";
-
-        if (TrackedSources[source].IsOverlay)
-            messageDisplay += " overlay";
-
-        if (TrackedSources[source].IsOneShotSource)
-            messageDisplay += " oneshot";
-
-        if (TrackedSources[source].IsCustomEvent)
-            messageDisplay += " event";
-
-        if (TrackedSources[source].AppliedLoop)
-        {
-            if (TrackedSources[source].AppliedLoop != TrackedSources[source].Loop)
-            {
-                messageDisplay += " loop(forced)";
-            }
-            else
-            {
-                messageDisplay += " loop";
-            }
-        }
-
-        if (TrackedSources[source].UsesDynamicTargeting)
-            messageDisplay += " dynamic";
-
-        Logging.LogInfo(messageDisplay, ModAudio.Plugin.LogAudioPlayed);
+        Logging.LogInfo(source.CreateRouteRepresentation(), ModAudio.Plugin.LogAudioPlayed);
     }
 
     public static bool AudioPlayed(AudioSource source)
     {
         try
         {
-            TrackSource(source);
+            var state = GetOrCreateModAudioSource(source);
 
             if (source.playOnAwake)
-            {
                 TrackedPlayOnAwakeSources.Add(source);
-            }
 
             var wasPlaying = source.isPlaying;
 
-            if (!Route(source))
+            if (!Route(state, false))
             {
-                LogAudio(source);
+                LogAudio(state);
                 return true;
             }
 
-            TrackedSources[source] = TrackedSources[source] with
-            {
-                JustRouted = false,
-                WasStoppedOrDisabled = false
-            };
+            state.ClearFlag(AudioFlags.WasStoppedOrDisabled);
 
             bool requiresRestart = wasPlaying && !source.isPlaying;
 
             if (requiresRestart)
             {
+                bool lastDisableRouteState = state.HasFlag(AudioFlags.DisableRouting);
+
+                state.SetFlag(AudioFlags.DisableRouting);
                 source.Play();
+                state.AssignFlag(AudioFlags.DisableRouting, lastDisableRouteState);
             }
             else
             {
-                LogAudio(source);
+                LogAudio(state);
             }
 
             // If a restart was required, then we already played the sound manually again, so let's skip the original
+
             return !requiresRestart;
         }
         catch (Exception e)
@@ -611,29 +560,31 @@ internal static class AudioEngine
     {
         try
         {
-            TrackSource(source);
+            var state = GetOrCreateModAudioSource(source);
 
             if (source.playOnAwake)
-            {
                 TrackedPlayOnAwakeSources.Remove(source);
-            }
 
             if (stopOneShots)
             {
                 Utils.CachedForeach(
                     TrackedSources,
                     source,
-                    static (in KeyValuePair<AudioSource?, AudioSourceState> trackedSource, in AudioSource stoppedSource) =>
+                    static (in KeyValuePair<AudioSource, ModAudioSource> trackedSource, in AudioSource stoppedSource) =>
                     {
-                        if (trackedSource.Value.IsOneShotSource && trackedSource.Value.OneShotStopsIfSourceStops && trackedSource.Value.OneShotOrigin == stoppedSource && trackedSource.Key != null && trackedSource.Key.isPlaying)
-                        {
+                        if (!trackedSource.Value.HasFlag(AudioFlags.IsDedicatedOneShotSource | AudioFlags.OneShotStopsIfSourceStops))
+                            return;
+
+                        if (trackedSource.Value.OneShotOrigin != stoppedSource || trackedSource.Key.IsNullOrDestroyed())
+                            return;
+
+                        if (trackedSource.Key.isPlaying)
                             trackedSource.Key.Stop();
-                        }
                     }
                 );
             }
 
-            TrackedSources[source] = TrackedSources[source] with { WasStoppedOrDisabled = true };
+            state.SetFlag(AudioFlags.WasStoppedOrDisabled);
 
             return true;
         }
@@ -660,11 +611,22 @@ internal static class AudioEngine
         MapInstance_Handle_AudioSettings.ForceCombatMusic = AudioEngineAPI.ForceCombatMusic;
     }
 
+    private static TargetGroupRouteAPI GetCachedTargetGroup(ModAudioSource source, AudioPack pack, Route route)
+    {
+        if (!CachedRoutingTargetGroupData.TryGetValue(route, out var routeApi))
+        {
+            ExecuteTargetGroup(pack, route, routeApi = new TargetGroupRouteAPI(source));
+            CachedRoutingTargetGroupData[route] = routeApi;
+        }
+
+        return routeApi;
+    }
+
     private static void ExecuteTargetGroup(AudioPack pack, Route route, TargetGroupRouteAPI routeApi)
     {
-        if (pack.ForceDisableScripts)
+        if (pack.HasFlag(PackFlags.ForceDisableScripts))
         {
-            routeApi.TargetGroup = "___skip___";
+            routeApi.SkipRoute = true;
             return;
         }
 
@@ -677,8 +639,8 @@ internal static class AudioEngine
         if (!pack.ScriptMethods.TryGetValue(route.TargetGroupScript, out Function script))
         {
             Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
-            pack.ForceDisableScripts = true;
-            routeApi.TargetGroup = "___skip___";
+            pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
+            routeApi.SkipRoute = true;
             return;
         }
 
@@ -692,8 +654,8 @@ internal static class AudioEngine
         {
             Logging.LogWarning($"Target group script call failed for pack {pack.Config.Id}, script {route.TargetGroupScript}!");
             Logging.LogWarning(e);
-            pack.ForceDisableScripts = true;
-            routeApi.TargetGroup = "___skip___";
+            pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
+            routeApi.SkipRoute = true;
             return;
         }
         PostScriptActions();
@@ -701,7 +663,7 @@ internal static class AudioEngine
 
     private static void ExecuteUpdate(AudioPack pack)
     {
-        if (pack.ForceDisableScripts)
+        if (pack.HasFlag(PackFlags.ForceDisableScripts))
         {
             return;
         }
@@ -709,7 +671,7 @@ internal static class AudioEngine
         if (!pack.ScriptMethods.TryGetValue(pack.Config.PackScripts.Update, out Function script))
         {
             Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
-            pack.ForceDisableScripts = true;
+            pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             return;
         }
 
@@ -723,16 +685,14 @@ internal static class AudioEngine
         {
             Logging.LogWarning($"Update script call failed for pack {pack.Config.Id}, script {pack.Config.PackScripts.Update}!");
             Logging.LogWarning(e);
-            pack.ForceDisableScripts = true;
+            pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
         PostScriptActions();
     }
 
-    private static bool MatchesSource(AudioSource source, Route route)
+    private static bool MatchesSource(ModAudioSource source, Route route)
     {
-        var trackedData = TrackedSources[source];
-
-        var originalClipName = trackedData.Clip?.name;
+        var originalClipName = source.AppliedState.Clip?.name;
 
         if (originalClipName == null)
             return false;
@@ -744,77 +704,140 @@ internal static class AudioEngine
         return false;
     }
 
-    private static bool Route(AudioSource source)
+    /// <summary>
+    /// Applies full routing to an audio source.
+    /// If an audio source was routed previously, it is restored to its original state before routing, effectively applying a new selectedRoute.
+    /// </summary>
+    /// <param name="source">The audio source to selectedRoute</param>
+    /// <returns>True if the source was rerouted or modified, false otherwise (for example when there are no routes defined)</returns>
+    private static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible)
     {
-        ContextAPI.UpdateGameState();
+        CachedRoutingTargetGroupData.Clear();
 
-        var trackedData = TrackedSources[source];
+        int currentChainRoutes = 0;
 
-        // Check for any changes in tracked sources' clips
-        // If so, restore last volume / pitch and track new clip before routing
+        var previousRoutes = source.RouteCount > 0 ? new Route[source.RouteCount] : [];
 
-        if (source.clip != trackedData.AppliedClip)
+        for (int i = 0; i < source.RouteCount; i++)
+            previousRoutes[i] = source.GetRoute(i).Route;
+
+        source.RevertSource();
+
+        var wasRouted = false;
+
+        while (currentChainRoutes++ < MaxChainRoutes)
         {
-            TrackedSources[source] = TrackedSources[source] with
-            {
-                Clip = source.clip,
-                AppliedClip = source.clip
-            };
+            var preferredRoute = currentChainRoutes <= previousRoutes.Length ? previousRoutes[currentChainRoutes - 1] : null;
 
-            if (Math.Abs(source.volume - trackedData.AppliedVolume) >= 0.005)
-            {
-                // Volume must have been changed externally, set it as new original volume
-                TrackedSources[source] = TrackedSources[source] with
-                {
-                    Volume = source.volume,
-                    AppliedVolume = source.volume
-                };
-            }
-            else
-            {
-                // Restore original volume
-                source.volume = trackedData.Volume;
-            }
+            if (!ExecuteRouteStep(source, preferredRoute))
+                break;
 
-            if (Math.Abs(source.pitch - trackedData.AppliedPitch) >= 0.005)
-            {
-                // Pitch must have been changed externally, set it as new original pitch
-                TrackedSources[source] = TrackedSources[source] with
-                {
-                    Pitch = source.pitch,
-                    AppliedPitch = source.pitch
-                };
-            }
-            else
-            {
-                // Restore original volume
-                source.pitch = trackedData.Pitch;
-            }
+            var routeData = source.GetRoute(currentChainRoutes - 1);
 
-            if (source.loop != trackedData.AppliedLoop)
+            if (source.HasFlag(AudioFlags.HasEncounteredErrors))
+                break; // Stop further routing or overlays
+
+            PlayOverlays(source, routeData.Route);
+
+            if (routeData.SelectedClip == EmptyClip)
+                break; // Can't route 
+
+            wasRouted = true;
+
+            if (source.RouteCount != currentChainRoutes || !source.GetRoute(currentChainRoutes - 1).Route.UseChainRouting)
+                break;
+
+            if (currentChainRoutes >= MaxChainRoutes)
             {
-                // Loop must have been changed externally, set it as new original loop
-                TrackedSources[source] = TrackedSources[source] with
-                {
-                    Loop = source.loop,
-                    AppliedLoop = source.loop
-                };
-            }
-            else
-            {
-                // Restore original loop
-                source.loop = trackedData.Loop;
+                Logging.LogWarning($"An audio source route ran into the max chain routing limit ({MaxChainRoutes})! Stopping routing...");
+                // This is technically not a pack error - you can't control how many chained routes you go through
+                break;
             }
         }
 
-        if (trackedData.JustRouted || trackedData.DisableRouting)
+        CachedRoutingTargetGroupData.Clear();
+
+        return wasRouted;
+    }
+
+    private static void PlayOverlay(ModAudioSource source, AudioPack pack, Route route)
+    {
+        var randomSelection = Utils.SelectRandomWeighted(RNG, route.OverlayClips);
+
+        if (randomSelection.Name == EmptyClipKeyword)
+            return;
+
+        if (pack.TryGetReadyClip(randomSelection.Name, out var selectedClip))
+        {
+            var oneShot = CreateOneShotFromSource(source);
+            oneShot.Audio.clip = selectedClip;
+
+            oneShot.Audio.volume = randomSelection.Volume;
+            oneShot.Audio.pitch = randomSelection.Pitch;
+
+            if (route.RelativeOverlayEffects)
+            {
+                oneShot.Audio.volume *= oneShot.InitialState.Volume;
+                oneShot.Audio.pitch *= oneShot.InitialState.Pitch;
+            }
+
+            if (route.ForceLoop)
+                oneShot.Audio.loop = true;
+
+            oneShot.AppliedState.Clip = oneShot.Audio.clip;
+            oneShot.AppliedState.Volume = oneShot.Audio.volume;
+            oneShot.AppliedState.Pitch = oneShot.Audio.pitch;
+            oneShot.AppliedState.Loop = oneShot.Audio.loop;
+            oneShot.SetFlag(AudioFlags.IsOverlay | AudioFlags.DisableRouting);
+            oneShot.AssignFlag(AudioFlags.OneShotStopsIfSourceStops, route.OverlayStopsIfSourceStops);
+
+            oneShot.Audio.Play();
+        }
+        else
+        {
+            Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
+            source.SetFlag(AudioFlags.HasEncounteredErrors);
+        }
+    }
+
+    private static void PlayOverlays(ModAudioSource source, Route? replacementRoute)
+    {
+        // Note: Overlays should not be able to trigger other overlays
+        // Otherwise you can easily create infinite loops
+
+        List<(AudioPack Pack, Route Route)> overlays = [];
+
+        foreach (var pack in EnabledPacks)
+        {
+            foreach (var route in pack.Config.Routes)
+            {
+                if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
+                    continue;
+
+                if (!(route.OverlayClips.Count > 0 && MatchesSource(source, route) && (!route.LinkOverlayAndReplacement || replacementRoute == route)))
+                    continue;
+
+                var routeApi = GetCachedTargetGroup(source, pack, route);
+
+                if (!routeApi.SkipRoute)
+                    overlays.Add((pack, route));
+            }
+        }
+
+        foreach (var (Pack, Route) in overlays)
+        {
+            PlayOverlay(source, Pack, Route);
+        }
+    }
+
+    private static bool ExecuteRouteStep(ModAudioSource source, Route? preferredRoute)
+    {
+        ContextAPI.UpdateGameState();
+
+        if (source.HasFlag(AudioFlags.DisableRouting))
             return false;
 
-        TrackedSources[source] = TrackedSources[source] with { JustRouted = true, JustUsedDefaultClip = false };
-
         // Get a replacement from routes
-
-        var cachedTargetGroupData = new Dictionary<Route, TargetGroupRouteAPI>();
 
         var replacements = new List<(AudioPack Pack, Route Route)>();
 
@@ -825,194 +848,134 @@ internal static class AudioEngine
                 if (!MatchesSource(source, route))
                     continue;
 
-                var routeApi = new TargetGroupRouteAPI(TrackedSources[source]);
+                // Disallow selecting routes that are already present in the chain
+                for (int i = 0; i < source.RouteCount; i++)
+                {
+                    if (source.GetRoute(i).Route == route)
+                        continue;
+                }
 
-                ExecuteTargetGroup(pack, route, routeApi);
+                var thisRouteApi = GetCachedTargetGroup(source, pack, route);
 
-                var group = cachedTargetGroupData[route] = routeApi;
-
-                if (group.TargetGroup != "___skip___")
+                if (!thisRouteApi.SkipRoute)
                     replacements.Add((pack, route));
             }
         }
 
-        (AudioPack Pack, Route Route)? replacementRoute = null;
+        if (replacements.Count == 0)
+            return false;
 
-        if (replacements.Count > 0)
+        if (source.RouteCount >= ModAudioSource.MaxChainedRoutes)
         {
-            replacementRoute = Utils.SelectRandomWeighted(RNG, replacements, out int selectedRouteIndex);
+            // This is a sanity check, normally this should be prevented earlier in the call stack
+            Logging.LogWarning("Tried to route an audio source that has reached max chained routes! Aborting routing operation. Please notify the mod developer about this!");
+            return false;
+        }
 
-            var targetGroupData = cachedTargetGroupData[replacementRoute.Value.Route];
+        var (selectedPack, selectedRoute) = Utils.SelectRandomWeighted(RNG, replacements);
 
-            // Apply overall effects
+        // Apply overall effects
 
-            if (replacementRoute.Value.Route.RelativeReplacementEffects)
+        source.Audio.volume = selectedRoute.Volume;
+        source.Audio.pitch = selectedRoute.Pitch;
+
+        if (selectedRoute.RelativeReplacementEffects)
+        {
+            source.Audio.volume *= source.InitialState.Volume;
+            source.Audio.pitch *= source.InitialState.Pitch;
+        }
+
+        if (selectedRoute.ForceLoop)
+            source.Audio.loop = true;
+
+        source.AppliedState.Volume = source.Audio.volume;
+        source.AppliedState.Pitch = source.Audio.pitch;
+        source.AppliedState.Loop = source.Audio.loop;
+
+        var routeApi = GetCachedTargetGroup(source, selectedPack, selectedRoute);
+
+        // Apply replacement if needed
+
+        List<ClipSelection> groupReplacements = [];
+
+        for (int i = 0; i < selectedRoute.ReplacementClips.Count; i++)
+        {
+            var replacement = selectedRoute.ReplacementClips[i];
+
+            if (routeApi.TargetGroup == "___all___" || replacement.Group == routeApi.TargetGroup)
+                groupReplacements.Add(replacement);
+        }
+
+        AudioClip? destinationClip = null;
+
+        if (groupReplacements.Count == 0)
+        {
+            Logging.LogWarning(Texts.NoAudioClipsInGroup(routeApi.TargetGroup));
+            source.SetFlag(AudioFlags.HasEncounteredErrors);
+            destinationClip = ErrorClip;
+        }
+        else
+        {
+            var randomSelection = Utils.SelectRandomWeighted(RNG, groupReplacements);
+
+            if (randomSelection.Name == DefaultClipKeyword)
             {
-                source.volume = trackedData.Volume * replacementRoute.Value.Route.Volume;
-                source.pitch = trackedData.Pitch * replacementRoute.Value.Route.Pitch;
+                destinationClip = source.AppliedState.Clip;
+            }
+            else if (randomSelection.Name == EmptyClipKeyword)
+            {
+                destinationClip = EmptyClip;
+            }
+            else if (randomSelection.Name.StartsWith("<atlyss>"))
+            {
+                // Try to load a vanilla clip
+                var possibleName = randomSelection.Name["<atlyss>".Length..];
+
+                if (!LoadedVanillaClips.TryGetValue(possibleName, out destinationClip) || destinationClip.IsNullOrDestroyed())
+                {
+                    if (VanillaClips.NameToResourcePath.TryGetValue(possibleName, out var path))
+                    {
+                        destinationClip = Resources.Load<AudioClip>(path);
+
+                        if (destinationClip)
+                        {
+                            LoadedVanillaClips[possibleName] = destinationClip;
+                        }
+                    }
+                }
             }
             else
             {
-                source.volume = replacementRoute.Value.Route.Volume;
-                source.pitch = replacementRoute.Value.Route.Pitch;
+                selectedPack.TryGetReadyClip(randomSelection.Name, out destinationClip);
             }
 
-            if (replacementRoute.Value.Route.ForceLoop)
-                source.loop = true;
-
-            TrackedSources[source] = TrackedSources[source] with
+            if (destinationClip != null)
             {
-                AppliedPitch = source.pitch,
-                AppliedVolume = source.volume,
-                AppliedLoop = source.loop,
-                RouteAudioPackId = replacementRoute.Value.Pack.Config.Id,
-                RouteAudioPackRouteIndex = selectedRouteIndex,
-                RouteGroup = targetGroupData.TargetGroup,
-                UsesDynamicTargeting = replacementRoute.Value.Route.EnableDynamicTargeting
-            };
+                source.Audio.volume *= randomSelection.Volume;
+                source.Audio.pitch *= randomSelection.Pitch;
 
-            // Apply replacement if needed
+                source.AppliedState.Clip = destinationClip;
+                source.AppliedState.Volume = source.Audio.volume;
+                source.AppliedState.Pitch = source.Audio.pitch;
+                source.AppliedState.Loop = source.Audio.loop;
 
-            if (replacementRoute.Value.Route.ReplacementClips.Count > 0)
+                if (source.Audio.clip != destinationClip && source.Audio.isPlaying)
+                    source.Audio.Stop();
+
+                source.Audio.clip = destinationClip;
+
+                if (selectedRoute.EnableDynamicTargeting)
+                    source.SetFlag(AudioFlags.ShouldUpdateDynamicTargeting);
+            }
+            else
             {
-                List<ClipSelection> groupReplacements = [];
-
-                for (int i = 0; i < replacementRoute.Value.Route.ReplacementClips.Count; i++)
-                {
-                    var replacement = replacementRoute.Value.Route.ReplacementClips[i];
-
-                    if (targetGroupData.TargetGroup == "___all___" || replacement.Group == targetGroupData.TargetGroup)
-                        groupReplacements.Add(replacement);
-                }
-
-                if (groupReplacements.Count == 0)
-                {
-                    Logging.LogWarning(Texts.NoAudioClipsInGroup(targetGroupData.TargetGroup));
-                }
-                else
-                {
-                    var randomSelection = Utils.SelectRandomWeighted(RNG, groupReplacements, out _);
-
-                    AudioClip? destinationClip;
-
-                    if (randomSelection.Name == "___default___")
-                    {
-                        destinationClip = TrackedSources[source].Clip;
-                        TrackedSources[source] = TrackedSources[source] with { JustUsedDefaultClip = true };
-                    }
-                    else if (randomSelection.Name == "___nothing___")
-                    {
-                        destinationClip = EmptyClip;
-                    }
-                    else
-                    {
-                        replacementRoute.Value.Pack.TryGetReadyClip(randomSelection.Name, out destinationClip);
-                    }
-
-                    if (destinationClip != null)
-                    {
-                        source.volume *= randomSelection.Volume;
-                        source.pitch *= randomSelection.Pitch;
-
-                        TrackedSources[source] = TrackedSources[source] with
-                        {
-                            AppliedClip = destinationClip,
-                            JustRouted = true,
-                            AppliedPitch = source.pitch,
-                            AppliedVolume = source.volume,
-                            AppliedLoop = source.loop
-                        };
-
-                        if (source.clip != destinationClip && source.isPlaying)
-                        {
-                            source.Stop();
-                        }
-
-                        source.clip = destinationClip;
-                    }
-                    else
-                    {
-                        Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
-                    }
-                }
+                Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
+                source.SetFlag(AudioFlags.HasEncounteredErrors);
+                destinationClip = ErrorClip;
             }
         }
 
-        List<(AudioPack Pack, Route Route)> overlays = [];
-
-        foreach (var pack in EnabledPacks)
-        {
-            foreach (var route in pack.Config.Routes)
-            {
-                if (route.OverlaysIgnoreRestarts && !(TrackedSources[source].WasStoppedOrDisabled || !source.isPlaying))
-                    continue;
-
-                if (!(route.OverlayClips.Count > 0 && MatchesSource(source, route) && (!route.LinkOverlayAndReplacement || replacementRoute?.Route == route)))
-                    continue;
-
-                if (!cachedTargetGroupData.TryGetValue(route, out var targetGroupData))
-                {
-                    targetGroupData = new TargetGroupRouteAPI(TrackedSources[source]);
-                    ExecuteTargetGroup(pack, route, targetGroupData);
-                }
-
-                if (targetGroupData.TargetGroup != "___skip___")
-                    overlays.Add((pack, route));
-            }
-        }
-
-        // Note: Overlays should not be able to trigger other overlays
-        // Otherwise you can easily create infinite loops
-        if (overlays.Count > 0 && !TrackedSources[source].IsOverlay)
-        {
-            foreach (var (Pack, Route) in overlays)
-            {
-                var randomSelection = Utils.SelectRandomWeighted(RNG, Route.OverlayClips, out _);
-
-                if (randomSelection.Name == "___nothing___")
-                    continue;
-
-                if (Pack.TryGetReadyClip(randomSelection.Name, out var selectedClip))
-                {
-                    var oneShotSource = CreateOneShotFromSource(source);
-                    oneShotSource.clip = selectedClip;
-
-                    if (Route.RelativeOverlayEffects)
-                    {
-                        oneShotSource.volume = trackedData.Volume * randomSelection.Volume;
-                        oneShotSource.pitch = trackedData.Pitch * randomSelection.Pitch;
-                    }
-                    else
-                    {
-                        oneShotSource.volume = randomSelection.Volume;
-                        oneShotSource.pitch = randomSelection.Pitch;
-                    }
-
-                    if (Route.ForceLoop)
-                        oneShotSource.loop = true;
-
-                    TrackedSources[oneShotSource] = TrackedSources[oneShotSource] with
-                    {
-                        Pitch = oneShotSource.pitch,
-                        Volume = oneShotSource.volume,
-                        AppliedPitch = oneShotSource.pitch,
-                        AppliedVolume = oneShotSource.volume,
-                        AppliedLoop = oneShotSource.loop,
-                        Clip = oneShotSource.clip,
-                        AppliedClip = oneShotSource.clip,
-                        IsOverlay = true,
-                        DisableRouting = true,
-                        OneShotStopsIfSourceStops = Route.OverlayStopsIfSourceStops
-                    };
-
-                    oneShotSource.Play();
-                }
-                else
-                {
-                    Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
-                }
-            }
-        }
+        source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip);
 
         return true;
     }

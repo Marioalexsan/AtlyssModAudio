@@ -185,12 +185,6 @@ _mu_wonton5 = _mu_wonton5_remix / 0.2
 
 This will play the default boss music with an 80% chance, and a remixed version with a 20% chance.
 
-## This __routes.txt format sucks! Can I just use JSON or something?
-
-Yeah! You can specify a `modaudio.config.json` file instead of a `__routes.txt` to customize the audio packs using JSON.
-
-The feature set available for JSON configs is slightly bigger, and you can use [this file](https://github.com/Marioalexsan/AtlyssMods/blob/main/ModAudio/AudioPackConfig.cs) as a reference for all of the fields that are available.
-
 ## Multiple audio mods
 
 If you use multiple audio mods that replace the same audio clips, ModAudio will effectively combine them into one.
@@ -211,6 +205,83 @@ There are multiple options available for logging how audio packs are loaded and 
 - MaxDistanceForLogging - distance from player to log audio within, in units. For reference, Angela is about 12 units or so in height - default: 32, min: 32, max: 2048
 
 For each audio pack loaded, there is also an option to enable or disable that pack.
+
+# How do I use scripts?
+
+It's the same as regular JavaScript, except forget about having libraries or modules of any kind other than what Jint and ModAudio provides by default.
+
+Some of the objects exposed are Jint readonly wrappers for C# objects, so you can expect to be able to do something like `mainPlayer._playerMapInstance._mapName`, similar to how you'd access it in C#.
+
+You have the following modules available:
+
+- `modaudio` module, which exports a `context` and an `engine` object
+  - `engine` will contain methods that can be used to modify things about the game. Right now it has the following properties:
+    - `forceCombatMusic(enable: boolean)` - will force the game to play action music for map instances (not dungeons)
+  - `context` will contain miscellaneous helper properties; no guarantees are made about the API provided through this object, it can change at any time. Right now it has the following properties:
+    - `mapName` - the current map's name
+    - `mapSubregion` - the current subregion within the map (for example `Tuul Enclave`), if applicable
+    - `aggroedEnemies` - a list of `Creep` instances that are currently focused on attacking the main player
+    - `secondsSinceGameStart` - corresponds to Unity's `Time.realtimeSinceStartupAsDouble`
+    - `deltaTime` - corresponds to Unity's `Time.deltaTime`
+    - `mainPlayerLastPvpEventAt` - seconds since the last time the main player hit or got hit by some other player
+    - `lastPlayerPvp` - a Player instance representing the last player that the main player hit or got hit by; this can be null or stale, so use in conjunction with `mainPlayerLastPvpEventAt`
+
+- `atlyss` module, which exports Jint readonly wrappers for some game objects through the following properties:
+  - `mainPlayer` - the main player as a `Player` instance, or null if not present yet
+  - `actionBarManager` - the current `ActionBarManager` instance, or null if not present yet
+  - `gameWorldManager` - the current `GameWorldManager` instance, or null if not present yet
+  - `shopkeepManager` - the current `ShopkeepManager` instance, or null if not present yet
+  - `mainMenuManager` - the current `MainMenuManager` instance, or null if not present yet
+  - `inGameUI` - the current `InGameUI` instance, or null if not present yet
+  
+For scripting examples, look on Thunderstore for any audio pack mods that use ModAudio >= 3.0.0 and have a `__routes.js` file.
+
+Things to keep in mind:
+- Scripts for your audio pack will be disabled if any call takes more than `100ms` to execute, or allocates more than `4 MB`, so try to be efficient with your allocations
+- Reloading all audio packs via the `Mods` menu in EasySettings will also reload scripts in addition to audio and configuration, allowing you to tinker with stuff while the game is open
+
+## Update scripts
+
+Update script functions can be specified in `__routes.txt` with the `%updatescript function_name` option.
+
+This is just a callback that takes no parameters, returns nothing, and that gets called on every game update, like so:
+
+```js
+export function pack_update() {
+  // Do stuff
+}
+```
+
+## Target group scripts
+
+Target group scripts can be specified in `__routes.txt` with the `~ target_group_script : function_name` option.
+
+This is a function that gets called once when the route is triggered, and allows you to specify the `group` of targets that should be played. For example:
+
+```js
+export function target_group_tuul_valley(route) {
+  const mainPlayer = game.inGameUI;
+
+  if (game.inGameUI._reigonTitle === "Tuul Enclave") {
+    route.targetGroup = "enclave";
+  }
+  else {
+    route.targetGroup = "valley";
+  }
+}
+```
+
+The callback receives one parameter and returns nothing:
+- `route`
+  - `targetGroup` - the current target group for this route (empty if this is being routed for the first time)
+    - Set it to `___skip___` to skip this route entirely, effectively filtering it out from the route selectio
+    - Set it to `___all___` to select all of the target clips for playing
+    - Set it to any other string value to select only the target clips that have the given value as their group
+
+If `enable_dynamic_targeting` is set to true with `~ target_group_script : function_name | enable_dynamic_targeting : true`, then this callback will be called again each frame for this audio source.
+- `route.targetGroup` will contain the current group of the routed audio
+- Having your callback set a different group than the current target group will cause ModAudio to reroute the audio source to the new clip
+- This can be used to implement things like dynamic region audio, combat music, and other scriptable things
 
 # Mod Compatibility
 
