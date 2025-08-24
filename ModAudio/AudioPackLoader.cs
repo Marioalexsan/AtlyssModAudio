@@ -1,6 +1,8 @@
 ﻿using BepInEx;
+using BepInEx.Logging;
 using Jint;
 using Jint.Native.Function;
+using System.IO;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -79,7 +81,7 @@ public static class AudioPackLoader
         foreach (var audioPack in audioPacks)
         {
             FinalizePack(audioPack);
-            Logging.LogInfo(Texts.PackLoaded(audioPack), ModAudio.Plugin.LogPackLoading);
+            AudioDebugDisplay.LogPack(LogLevel.Info, Texts.PackLoaded(audioPack));
         }
 
         return audioPacks;
@@ -95,7 +97,7 @@ public static class AudioPackLoader
 
             if (clampedWeight != route.ReplacementWeight)
             {
-                Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
             }
 
@@ -107,7 +109,7 @@ public static class AudioPackLoader
 
                 if (clampedWeight != selection.Weight)
                 {
-                    Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                    AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
                     pack.SetFlag(PackFlags.HasEncounteredErrors);
                 }
 
@@ -120,7 +122,7 @@ public static class AudioPackLoader
 
                 if (clampedWeight != selection.Weight)
                 {
-                    Logging.LogWarning(Texts.WeightClamped(clampedWeight, pack));
+                    AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
                     pack.SetFlag(PackFlags.HasEncounteredErrors);
                 }
 
@@ -129,7 +131,7 @@ public static class AudioPackLoader
 
             if (!string.IsNullOrEmpty(route.TargetGroupScript) && !pack.ScriptMethods.ContainsKey(route.TargetGroupScript))
             {
-                Logging.LogWarning(Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
+                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 route.TargetGroupScript = "";
             }
@@ -169,7 +171,7 @@ public static class AudioPackLoader
 
     private static AudioPack? LoadAudioPack(List<AudioPack> existingPacks, string path, Func<Stream, AudioPackConfig> configReader)
     {
-        Logging.LogInfo(Texts.LoadingPack(path), ModAudio.Plugin.LogPackLoading);
+        AudioDebugDisplay.LogPack(LogLevel.Info, Texts.LoadingPack(path));
 
         AudioPackConfig config;
         try
@@ -179,8 +181,8 @@ public static class AudioPackLoader
         }
         catch (Exception e)
         {
-            Logging.LogWarning($"Failed to read audio pack config for {ReplaceRootPath(path)}.");
-            Logging.LogWarning(e.ToString());
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack config for {ReplaceRootPath(path)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
             return null;
         }
 
@@ -197,7 +199,7 @@ public static class AudioPackLoader
         }
         else if (!IsSanitizedId(pack.Config.Id))
         {
-            Logging.LogWarning(Texts.InvalidPackId(pack.PackPath, pack.Config.Id));
+            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.InvalidPackId(pack.PackPath, pack.Config.Id));
             return null;
         }
 
@@ -209,7 +211,7 @@ public static class AudioPackLoader
 
         if (existingPacks.Any(x => x.Config.Id == pack.Config.Id))
         {
-            Logging.LogWarning(Texts.DuplicatePackId(pack.PackPath, pack.Config.Id));
+            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.DuplicatePackId(pack.PackPath, pack.Config.Id));
             return null;
         }
 
@@ -227,7 +229,7 @@ public static class AudioPackLoader
         {
             if (pack.ReadyClips.Any(x => x.Value.name == clipData.Name))
             {
-                Logging.LogWarning(Texts.DuplicateClipId(clipData.Path, clipData.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.DuplicateClipId(clipData.Path, clipData.Name));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
@@ -236,7 +238,7 @@ public static class AudioPackLoader
 
             if (!clipPath.StartsWith(rootPath))
             {
-                Logging.LogWarning(Texts.InvalidPackPath(clipData.Path, clipData.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.InvalidPackPath(clipData.Path, clipData.Name));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
@@ -260,14 +262,14 @@ public static class AudioPackLoader
 
             if (!gotExtension)
             {
-                Logging.LogWarning(Texts.UnsupportedAudioFile(clipData.Path, clipData.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.UnsupportedAudioFile(clipData.Path, clipData.Name));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
 
             if (!File.Exists(clipPath))
             {
-                Logging.LogWarning(Texts.AudioFileNotFound(clipData.Path, clipData.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.AudioFileNotFound(clipData.Path, clipData.Name));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 continue;
             }
@@ -277,13 +279,13 @@ public static class AudioPackLoader
 
             if (useStreaming && !AudioClipLoader.SupportedStreamExtensions.Any(clipPath.EndsWith))
             {
-                Logging.LogWarning(Texts.AudioCannotBeStreamed(clipPath, fileSize));
+                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.AudioCannotBeStreamed(clipPath, fileSize));
                 useStreaming = false;
             }
 
             try
             {
-                Logging.LogInfo(Texts.LoadingClip(clipPath, clipData.Name, useStreaming), ModAudio.Plugin.LogPackLoading);
+                AudioDebugDisplay.LogPack(LogLevel.Info, Texts.LoadingClip(clipPath, clipData.Name, useStreaming));
 
                 if (useStreaming)
                 {
@@ -304,8 +306,8 @@ public static class AudioPackLoader
             }
             catch (Exception e)
             {
-                Logging.LogWarning($"Failed to load {clipData.Name} from {ReplaceRootPath(clipPath)}!");
-                Logging.LogWarning($"Exception: {e}");
+                AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to load {clipData.Name} from {ReplaceRootPath(clipPath)}!");
+                AudioDebugDisplay.LogPack(LogLevel.Error, $"Exception: {e}");
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
             }
         }
@@ -331,12 +333,12 @@ public static class AudioPackLoader
                     pack.ScriptMethods[key.AsString()] = function;
             }
 
-            Logging.LogInfo($"Loaded {pack.ScriptMethods.Count} script methods from {ReplaceRootPath(scriptPath)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loaded {pack.ScriptMethods.Count} script methods from {ReplaceRootPath(scriptPath)}.");
         }
         catch (Exception e)
         {
-            Logging.LogWarning($"Failed to read audio pack scripts for {ReplaceRootPath(path)}.");
-            Logging.LogWarning(e.ToString());
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack scripts for {ReplaceRootPath(path)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
             pack.ScriptMethods.Clear();
             pack.SetFlag(PackFlags.ForceDisableScripts | PackFlags.HasEncounteredErrors);
         }

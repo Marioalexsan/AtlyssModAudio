@@ -24,6 +24,14 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+        <DefineConstants>
+            <!--
+            -->ENABLE_PROFILER;<!-- For Unity's ProfileMarkers to actually emit calls
+            -->
+        </DefineConstants>
+    </PropertyGroup>
     
     <PropertyGroup>
         <AtlyssManaged>$(AtlyssPath)/ATLYSS_Data/Managed/</AtlyssManaged>
@@ -41,6 +49,7 @@
         
         <Reference Include="$(AtlyssManaged)Assembly-CSharp.dll" Publicize="true" Private="False" />
         <Reference Include="$(AtlyssManaged)UnityEngine.UI.dll" Private="False" />
+        <Reference Include="$(AtlyssManaged)UnityEngine.IMGUIModule.dll" Private="False" />
         <Reference Include="$(AtlyssManaged)Newtonsoft.Json.dll" Private="False" />
         <Reference Include="$(AtlyssManaged)Mirror.dll" Private="False" />
         <Reference Include="$(AtlyssManaged)com.rlabrecque.steamworks.net.dll" Private="False" />

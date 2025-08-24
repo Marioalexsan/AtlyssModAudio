@@ -5,7 +5,7 @@ namespace Marioalexsan.ModAudio.Scripting;
 
 internal class TargetGroupRouteAPI(in ModAudioSource state)
 {
-    public string TargetGroup { get; set; } = "___all___"; // TODO Grab last route
+    public string TargetGroup { get; set; } = AudioEngine.TargetGroupAll;
     public bool SkipRoute { get; set; }
 
     public JsObject Wrap(Engine engine)

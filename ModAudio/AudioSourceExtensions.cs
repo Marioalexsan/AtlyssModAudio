@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using BepInEx.Logging;
+using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -47,7 +48,7 @@ public static class AudioSourceExtensions
         return clone;
     }
 
-    public static string CreateRouteRepresentation(this ModAudioSource state)
+    public static void LogDebugDisplay(this ModAudioSource state)
     {
         var originalClipName = state.InitialState.Clip?.name ?? "(null)";
 
@@ -111,6 +112,18 @@ public static class AudioSourceExtensions
         if (state.RouteCount >= 1 && state.GetRoute(0).Route.UseChainRouting)
             messageDisplay += " chainrouted";
 
-        return messageDisplay;
+        if (state.Audio.playOnAwake)
+            messageDisplay += " onAwake";
+
+        // AudioGroup is lowercased since it needs to be in an exact, expected format for efficient filtering
+        string tags = $"AudGrp {(state.Audio.outputAudioMixerGroup?.name ?? "(null)").ToLower()}";
+
+        if (state.RouteCount > 0)
+            tags += ",Routed";
+
+        if (state.HasFlag(AudioFlags.IsOverlay))
+            tags += ",Overlay";
+
+        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags);
     }
 }

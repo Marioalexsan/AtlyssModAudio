@@ -22,7 +22,6 @@ public class AudioPack
 
     public PackFlags Flags;
 
-
     public List<IAudioStream> OpenStreams { get; } = []; // Only touch this if you plan on cleaning up the pack
     public Dictionary<string, AudioClip> ReadyClips { get; } = [];
 

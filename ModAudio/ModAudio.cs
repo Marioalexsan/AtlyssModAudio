@@ -28,22 +28,16 @@ public class ModAudio : BaseUnityPlugin
     public string ModAudioConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
     public string ModAudioPluginFolder => Path.GetDirectoryName(Info.Location);
 
+    private AudioDebugDisplay? _display;
+
     public ModAudio()
     {
         _plugin = this;
 
-        LogPackLoading = Config.Bind("Logging", nameof(LogPackLoading), true, Texts.LogAudioLoadingDescription);
-        LogAudioPlayed = Config.Bind("Logging", nameof(LogAudioPlayed), false, Texts.LogAudioPlayedDescription);
-        UseMaxDistanceForLogging = Config.Bind("Logging", nameof(UseMaxDistanceForLogging), false, Texts.UseMaxDistanceForLoggingDescription);
-        MaxDistanceForLogging = Config.Bind("Logging", nameof(MaxDistanceForLogging), 32f, new ConfigDescription(Texts.MaxDistanceForLoggingDescription, new AcceptableValueRange<float>(32f, 2048)));
-
-        LogAmbience = Config.Bind("Logging", nameof(LogAmbience), true, Texts.LogAmbienceDescription);
-        LogGame = Config.Bind("Logging", nameof(LogGame), true, Texts.LogGameDescription);
-        LogGUI = Config.Bind("Logging", nameof(LogGUI), true, Texts.LogGUIDescription);
-        LogMusic = Config.Bind("Logging", nameof(LogMusic), true, Texts.LogMusicDescription);
-        LogVoice = Config.Bind("Logging", nameof(LogVoice), true, Texts.LogVoiceDescription);
+        DebugMenuButton = Config.Bind("General", nameof(DebugMenuButton), KeyCode.None, "Button to use for toggling on/off the debug menu for ModAudio. This menu contains various logs for the mod, and can be useful for debugging audio packs, clips and other issues.");
 
         Logger = base.Logger;
+
         _harmony = new Harmony(ModInfo.GUID);
     }
 
@@ -67,22 +61,13 @@ public class ModAudio : BaseUnityPlugin
     private void Awake()
     {
         _harmony.PatchAll(typeof(ModAudio).Assembly);
+        _display = gameObject.AddComponent<AudioDebugDisplay>();
 
         SetupBaseAudioPack();
         InitializeConfiguration();
     }
 
-    public ConfigEntry<bool> LogPackLoading { get; private set; }
-    public ConfigEntry<bool> LogAudioPlayed { get; private set; }
-
-    public ConfigEntry<bool> UseMaxDistanceForLogging { get; private set; }
-    public ConfigEntry<float> MaxDistanceForLogging { get; private set; }
-
-    public ConfigEntry<bool> LogAmbience { get; private set; }
-    public ConfigEntry<bool> LogGame { get; private set; }
-    public ConfigEntry<bool> LogGUI { get; private set; }
-    public ConfigEntry<bool> LogMusic { get; private set; }
-    public ConfigEntry<bool> LogVoice { get; private set; }
+    public ConfigEntry<KeyCode> DebugMenuButton { get; }
 
     public Dictionary<string, ConfigEntry<bool>> AudioPackEnabled { get; } = [];
     public Dictionary<string, (GameObject Toggle, string DisplayName)> AudioPackEnabledObjects { get; } = [];
@@ -126,16 +111,7 @@ public class ModAudio : BaseUnityPlugin
             EasySettings.OnInitialized.AddListener(() =>
             {
                 EasySettings.AddHeader(ModInfo.NAME);
-                EasySettings.AddToggle(Texts.LogAudioLoadingTitle, LogPackLoading);
-                EasySettings.AddToggle(Texts.LogAudioPlayedTitle, LogAudioPlayed);
-                EasySettings.AddToggle(Texts.UseMaxDistanceForLoggingTitle, UseMaxDistanceForLogging);
-                EasySettings.AddAdvancedSlider(Texts.MaxDistanceForLoggingTitle, MaxDistanceForLogging, true);
-
-                EasySettings.AddToggle(Texts.LogAmbienceTitle, LogAmbience);
-                EasySettings.AddToggle(Texts.LogGameTitle, LogGame);
-                EasySettings.AddToggle(Texts.LogGUITitle, LogGUI);
-                EasySettings.AddToggle(Texts.LogMusicTitle, LogMusic);
-                EasySettings.AddToggle(Texts.LogVoiceTitle, LogVoice);
+                EasySettings.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
             });
         }
     }

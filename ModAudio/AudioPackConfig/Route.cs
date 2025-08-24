@@ -71,15 +71,14 @@ public class Route
     /// <summary>
     /// The name of an exported JavaScript method from the audio pack script that dynamically picks a target group to play.
     /// If this is specified, only the target clips that have the specified group will be chosen to play.
-    /// Two special groups are available:
-    /// "___skip___" skips this route from being selected at all, acting as a filter.
-    /// "___all___" explicitly selects all of the tracks from this route.
+    /// One special group is available:
+    /// - "all" - explicitly selects all of the tracks from this route.
     /// </summary>
     public string TargetGroupScript { get; set; } = "";
 
     /// <summary>
     /// If set to true, then the target group script will dynamically track the group of this route and switch the playing audio based on it.
-    /// This allows you to switch music dynamically based on 
+    /// This allows you to implement dynamic music based on game conditions.
     /// </summary>
     public bool EnableDynamicTargeting { get; set; } = false;
 
@@ -91,9 +90,8 @@ public class Route
 
     /// <summary>
     /// Important: This is an experimental option and can be buggy.
-    /// If set to true and a replacement is available, the engine will try to reroute the replacement of this route again.
-    /// This allows you to do something like rerouting into a vanilla music that is then rerouted by another audio pack.
-    /// Note: Routes that have dynamic targeting enabled cannot be chained to, so they will be ignored.
+    /// If set to true, the engine will try to chain the resulting replacements through the routing system again.
+    /// This can be handy if you try to reroute to a vanilla clip - in this case, the vanilla clip will then be rerouted to other routes' custom music.
     /// </summary>
     public bool UseChainRouting { get; set; } = false;
 }

@@ -1,7 +1,0 @@
-%id marios_pack
-%displayname Map Combat Music Pack
-
-%updatescript pack_update
-
-modaudio_map_crescentroad_action = <atlyss>_mu_wonton5
-modaudio_map_outersanctum_action = <atlyss>_mu_wonton5

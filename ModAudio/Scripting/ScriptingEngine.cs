@@ -54,7 +54,7 @@ internal static class ScriptingEngine
 
     private static JsValue Log(JsonSerializer serializer, JsValue[] arguments, LogLevel level)
     {
-        var repr = new StringBuilder("[JS]: ");
+        var repr = new StringBuilder($"[{AudioEngine.CurrentlyCalledScriptPack?.Config.DisplayName ?? "(null)"}]: ");
 
         for (int i = 0; i < arguments.Length; i++)
         {
@@ -82,10 +82,10 @@ internal static class ScriptingEngine
         switch (level)
         {
             case LogLevel.Info:
-                Logging.LogInfo(repr.ToString());
+                AudioDebugDisplay.LogScript(LogLevel.Info, repr.ToString());
                 break;
             case LogLevel.Error:
-                Logging.LogError(repr.ToString());
+                AudioDebugDisplay.LogScript(LogLevel.Error, repr.ToString());
                 break;
         }
 

@@ -1,8 +1,10 @@
-﻿using Jint;
+﻿using BepInEx.Logging;
+using Jint;
 using Jint.Native.Function;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Audio;
@@ -14,6 +16,8 @@ internal static class AudioEngine
     public const string DefaultClipKeyword = "___default___";
     public const string EmptyClipKeyword = "___nothing___";
     public const string ErrorClipKeyword = "!!! error !!!";
+
+    public const string TargetGroupAll = "all";
 
     internal static Jint.Engine ScriptEngine = ScriptingEngine.SetupJint();
 
@@ -30,6 +34,8 @@ internal static class AudioEngine
 
     public static Dictionary<string, AudioClip> LoadedVanillaClips = [];
     public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
+
+    public static AudioPack? CurrentlyCalledScriptPack { get; private set; }
 
     // Temporary data for routing
     private static readonly Dictionary<Route, TargetGroupRouteAPI> CachedRoutingTargetGroupData = [];
@@ -75,7 +81,7 @@ internal static class AudioEngine
 
         try
         {
-            Logging.LogInfo("Reloading engine...");
+            Logging.LogInfo("Reloading engine! this might take a while...");
 
             // Reset internal state
             MapInstance_Handle_AudioSettings.ForceCombatMusic = false;
@@ -167,11 +173,10 @@ internal static class AudioEngine
                     {
                         _ = pack.TryGetReadyClip(clip, out _);
                     }
-
-                    Logging.LogInfo($"{pack.Config.Id} - {clipsToPreload.Length} clips preloaded.");
                 }
             }
-            Logging.LogInfo("Audio data preloaded.");
+
+            Logging.LogInfo("Restarting audio sources...");
 
             // Restart audio
             foreach (var audio in UnityEngine.Object.FindObjectsOfType<AudioSource>(true))
@@ -179,8 +184,6 @@ internal static class AudioEngine
                 if (wasPlayingPreviously[audio])
                     audio.Play();
             }
-
-            Logging.LogInfo("Done with reload!");
         }
         catch (Exception e)
         {
@@ -190,7 +193,7 @@ internal static class AudioEngine
 
         Watch.Stop();
 
-        Logging.LogInfo($"Reload took {Watch.ElapsedMilliseconds} milliseconds.");
+        Logging.LogInfo($"Done with reload! Reload took {Watch.ElapsedMilliseconds} milliseconds.");
     }
 
     public static void Update()
@@ -312,6 +315,7 @@ internal static class AudioEngine
                 source.Audio.Stop();
 
                 Route(source, true);
+                source.LogDebugDisplay();
 
                 if (useSmoothing)
                 {
@@ -321,7 +325,7 @@ internal static class AudioEngine
                 }
 
                 if (wasPlaying)
-                    source.Audio.Play();
+                    source.PlayWithoutRouting();
             }
         }
         else if (source.HasFlag(AudioFlags.IsSwappingTargets))
@@ -475,74 +479,29 @@ internal static class AudioEngine
         }
     }
 
-    private static void LogAudio(ModAudioSource source)
-    {
-        float distance = float.MinValue;
-
-        if (ModAudio.Plugin.UseMaxDistanceForLogging.Value && (bool)Player._mainPlayer)
-        {
-            distance = Vector3.Distance(Player._mainPlayer.transform.position, source.Audio.transform.position);
-
-            if (distance > ModAudio.Plugin.MaxDistanceForLogging.Value)
-                return;
-        }
-
-        var groupName = source.Audio.outputAudioMixerGroup?.name?.ToLower() ?? "(null)"; // This can be null, apparently...
-
-        if (!ModAudio.Plugin.LogAmbience.Value && groupName == "ambience")
-            return;
-
-        if (!ModAudio.Plugin.LogGame.Value && groupName == "game")
-            return;
-
-        if (!ModAudio.Plugin.LogGUI.Value && groupName == "gui")
-            return;
-
-        if (!ModAudio.Plugin.LogMusic.Value && groupName == "music")
-            return;
-
-        if (!ModAudio.Plugin.LogVoice.Value && groupName == "voice")
-            return;
-
-        Logging.LogInfo(source.CreateRouteRepresentation(), ModAudio.Plugin.LogAudioPlayed);
-    }
-
     public static bool AudioPlayed(AudioSource source)
     {
         try
         {
             var state = GetOrCreateModAudioSource(source);
 
-            if (source.playOnAwake)
-                TrackedPlayOnAwakeSources.Add(source);
+            if (state.Audio.playOnAwake)
+                TrackedPlayOnAwakeSources.Add(state.Audio);
 
-            var wasPlaying = source.isPlaying;
+            var wasPlaying = state.Audio.isPlaying;
 
-            if (!Route(state, false))
-            {
-                LogAudio(state);
-                return true;
-            }
+            Route(state, false);
+            state.LogDebugDisplay();
 
             state.ClearFlag(AudioFlags.WasStoppedOrDisabled);
 
-            bool requiresRestart = wasPlaying && !source.isPlaying;
+            bool requiresRestart = wasPlaying && !state.Audio.isPlaying;
 
             if (requiresRestart)
-            {
-                bool lastDisableRouteState = state.HasFlag(AudioFlags.DisableRouting);
+                state.PlayWithoutRouting();
 
-                state.SetFlag(AudioFlags.DisableRouting);
-                source.Play();
-                state.AssignFlag(AudioFlags.DisableRouting, lastDisableRouteState);
-            }
-            else
-            {
-                LogAudio(state);
-            }
-
-            // If a restart was required, then we already played the sound manually again, so let's skip the original
-
+            // If a restart was required, then we already played the sound
+            // so let's skip the original if this is called as part of the AudioSource.Play() hooks
             return !requiresRestart;
         }
         catch (Exception e)
@@ -600,15 +559,17 @@ internal static class AudioEngine
         }
     }
 
-    private static void PreScriptActions()
+    private static void PreScriptActions(AudioPack callingPack)
     {
         AudioEngineAPI.UpdateGameState();
         ContextAPI.UpdateGameState();
+        CurrentlyCalledScriptPack = callingPack;
     }
 
     private static void PostScriptActions()
     {
         MapInstance_Handle_AudioSettings.ForceCombatMusic = AudioEngineAPI.ForceCombatMusic;
+        CurrentlyCalledScriptPack = null;
     }
 
     private static TargetGroupRouteAPI GetCachedTargetGroup(ModAudioSource source, AudioPack pack, Route route)
@@ -632,19 +593,19 @@ internal static class AudioEngine
 
         if (string.IsNullOrEmpty(route.TargetGroupScript))
         {
-            routeApi.TargetGroup = "___all___";
+            routeApi.TargetGroup = TargetGroupAll;
             return;
         }
 
         if (!pack.ScriptMethods.TryGetValue(route.TargetGroupScript, out Function script))
         {
-            Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"A script method for {pack.Config.Id} is missing for some reason!");
             pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             routeApi.SkipRoute = true;
             return;
         }
 
-        PreScriptActions();
+        PreScriptActions(pack);
         try
         {
             // TODO: Check whenever scripts are allocating way too much total memory
@@ -652,8 +613,8 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogWarning($"Target group script call failed for pack {pack.Config.Id}, script {route.TargetGroupScript}!");
-            Logging.LogWarning(e);
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"Target group script call failed for pack {pack.Config.Id}, script {route.TargetGroupScript}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
             pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             routeApi.SkipRoute = true;
             return;
@@ -670,12 +631,12 @@ internal static class AudioEngine
 
         if (!pack.ScriptMethods.TryGetValue(pack.Config.PackScripts.Update, out Function script))
         {
-            Logging.LogWarning($"A script method for {pack.Config.Id} is missing for some reason!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"A script method for {pack.Config.Id} is missing for some reason!");
             pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             return;
         }
 
-        PreScriptActions();
+        PreScriptActions(pack);
         try
         {
             // TODO: Check whenever scripts are allocating way too much total memory
@@ -683,8 +644,8 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogWarning($"Update script call failed for pack {pack.Config.Id}, script {pack.Config.PackScripts.Update}!");
-            Logging.LogWarning(e);
+            AudioDebugDisplay.LogPack(LogLevel.Error, $"Update script call failed for pack {pack.Config.Id}, script {pack.Config.PackScripts.Update}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
             pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
         PostScriptActions();
@@ -712,6 +673,9 @@ internal static class AudioEngine
     /// <returns>True if the source was rerouted or modified, false otherwise (for example when there are no routes defined)</returns>
     private static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible)
     {
+        if (source.HasFlag(AudioFlags.DisableRouting))
+            return false; // Do not apply changes
+
         CachedRoutingTargetGroupData.Clear();
 
         int currentChainRoutes = 0;
@@ -749,8 +713,7 @@ internal static class AudioEngine
 
             if (currentChainRoutes >= MaxChainRoutes)
             {
-                Logging.LogWarning($"An audio source route ran into the max chain routing limit ({MaxChainRoutes})! Stopping routing...");
-                // This is technically not a pack error - you can't control how many chained routes you go through
+                AudioDebugDisplay.LogEngine(LogLevel.Warning, $"An audio source route ran into the max chain routing limit ({MaxChainRoutes})! Stopping routing...");
                 break;
             }
         }
@@ -795,7 +758,8 @@ internal static class AudioEngine
         }
         else
         {
-            Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
+            AudioDebugDisplay.LogAudio(LogLevel.Warning, Texts.AudioClipNotFound(randomSelection.Name));
+            pack.SetFlag(PackFlags.HasEncounteredErrors);
             source.SetFlag(AudioFlags.HasEncounteredErrors);
         }
     }
@@ -902,7 +866,7 @@ internal static class AudioEngine
         {
             var replacement = selectedRoute.ReplacementClips[i];
 
-            if (routeApi.TargetGroup == "___all___" || replacement.Group == routeApi.TargetGroup)
+            if (routeApi.TargetGroup == TargetGroupAll || replacement.Group == routeApi.TargetGroup)
                 groupReplacements.Add(replacement);
         }
 
@@ -910,7 +874,8 @@ internal static class AudioEngine
 
         if (groupReplacements.Count == 0)
         {
-            Logging.LogWarning(Texts.NoAudioClipsInGroup(routeApi.TargetGroup));
+            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.NoAudioClipsInGroup(routeApi.TargetGroup));
+            selectedPack.SetFlag(PackFlags.HasEncounteredErrors);
             source.SetFlag(AudioFlags.HasEncounteredErrors);
             destinationClip = ErrorClip;
         }
@@ -969,13 +934,14 @@ internal static class AudioEngine
             }
             else
             {
-                Logging.LogWarning(Texts.AudioClipNotFound(randomSelection.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.AudioClipNotFound(randomSelection.Name));
+                selectedPack.SetFlag(PackFlags.HasEncounteredErrors);
                 source.SetFlag(AudioFlags.HasEncounteredErrors);
                 destinationClip = ErrorClip;
             }
         }
 
-        source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip);
+        source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip ?? ErrorClip);
 
         return true;
     }

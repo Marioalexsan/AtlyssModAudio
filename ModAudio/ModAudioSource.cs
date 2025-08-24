@@ -182,4 +182,13 @@ public class ModAudioSource
             ClearFlag(flag);
         }
     }
+
+    public void PlayWithoutRouting()
+    {
+        bool lastDisableRouteState = HasFlag(AudioFlags.DisableRouting);
+
+        SetFlag(AudioFlags.DisableRouting);
+        Audio.Play();
+        AssignFlag(AudioFlags.DisableRouting, lastDisableRouteState);
+    }
 }

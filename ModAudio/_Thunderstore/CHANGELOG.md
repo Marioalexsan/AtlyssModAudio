@@ -5,28 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2025-Aug-16 - "The Bugfest Development Hell Update"
+## [3.0.0] - 2025-Aug-24 - "The Bugfest Development Hell Update"
 
 ```
-Trust me when I say that these changelogs won't make too much sense.
-If you want to find out how to use some of the new features, you'll either have to look through the mod's code,
-or look at examples from upcoming audio packs to understand how to use the new features.
+Trust me when I say that these changelogs won't make too much sense, or that they might be incomplete.
+If you want to find out how to use some of the new features, you'll either have to 
+look through the mod's code, or look at examples from upcoming audio packs to understand them.
 
 These features will be documented properly at a later point in time.
 ```
 
-### Deprecated
+### Removed
 
 - Removed unused and undocumented route options: `filter_by_sources`, `filter_by_object`
-  - These features can instead be implemented via the scripting engine
-- Removed a feature that would automatically replace clips based on whenever the audio files match the name of the vanilla clips 
-  - If you have an audio pack that used this feature, you now have to explicitly do the replacement in the audio pack configuration
-- Removed option to specify routes via JSON configuration in `modaudio.config.json`
+  - These features can instead be implemented via the JS scripting engine
+- Removed automatic replacement of clips based on audio files matching vanilla files
+  - If you have an audio pack that used this, you now have to explicitly do the replacement in the audio pack config
+- Removed option to specify routes via JSON configuration in `modaudio.config.json`, since it was largely unused
   - This might be replaced by JS script configurations when full scripting support happens
 
 ### Added
 
-- **IMPORTANT**: ModAudio now has limited experimental support for scripting via JavaScript!
+- **IMPORTANT**: ModAudio now has experimental support for scripting via JavaScript!
   - Scripts are specified with a `__routes.js` file alongside `__routes.txt`
   - Added the `target_group_script` parameter for routes, which specifies a script function that will select a group of target clips to play based on the conditions you specify
   - Added the `enable_dynamic_targeting` parameter for routes, which specifies that audio will be updated dynamically using `target_group_script`; this allows for dynamic map music or conditional routing
@@ -73,10 +73,20 @@ These features will be documented properly at a later point in time.
     - day music: `modaudio_map_{clean map name}_day`
     - night music: `modaudio_map_{clean map name}_night`
     - action music: `modaudio_map_{clean map name}_action`
-- ModAudio now allows forcing action music to play as part of maps by using scripts
+    - examples: `modaudio_map_tuulvalley_action`, `modaudio_map_executionerstomb_action`, `modaudio_map_crescentroad_action`
+- ModAudio now allows forcing action music to play as part of maps, via JS scripts
+- Added chain routing functionality - by using `~ chain_route : true`, you can tell ModAudio that the replacement of your route should be rerouted again through other packs
+  - This can be useful when you reroute audio to vanilla clips, and want those vanilla clips to actually play whichever custom clips the user has from other packs
+  - There is a limit of 4 max chained routes
 
 ### Changed
 
+- ***IMPORTANT***: A new debug menu has been implemented, which can be opened by using the `DebugMenuButton` key configuration (see EasySettings or the config file)
+  - All audio logging functionality has been moved to the debug menu
+  - As a side effect, this means that the BepInEx console will no longer be cluttered by ModAudio logs
+  - The debug menu also includes additional debug information about currently loaded audio packs
+  - Any audio packs that have encountered errors will be displayed in red - check the error / warning messages in the audio logs to understand what went wrong
+  - The distance filter has been removed temporarily - this will be reimplemented in a later update
 - ModAudio now tries to implement / fix "null" audio sources, so that they play correctly
   - You might notice that Sanctum Arena and Executioner's Tomb now play background music, unlike before
 - Changed vanilla audio mixing logic for map instances so that the transition from action music to day / night music is smoother 

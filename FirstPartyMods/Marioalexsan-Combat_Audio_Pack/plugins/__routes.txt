@@ -1,0 +1,35 @@
+%id           marioalexsan_map_combat_music_pack
+%displayname  Map Combat Music Pack
+%updatescript pack_update
+
+%customclipvolume opensalami = 0.8
+
+modaudio_map_crescentroad_action = <atlyss>_mu_wonton5 ~ chain_route : true
+
+modaudio_map_outersanctum_action = <atlyss>_atlyssSet_catacomb_action5 ~ chain_route : true
+
+modaudio_map_sanctumarena_action = rig_my_selection
+modaudio_map_executionerstomb_action = rig_my_selection
+
+_mu_haven                                             \
+  = | ___default___ : 1.0 : 1.0 : 1.0 : nonarena      \
+    | <atlyss>_mu_hell02 : 1.0 : 1.0 : 1.0 : arena    \
+  ~ | target_group_script : target_group_sanctumarena \
+    | enable_dynamic_targeting : true                 \
+    | smooth_dynamic_targeting : true                 \
+    | chain_route : true
+
+modaudio_map_tuulvalley_action                       \
+  = | markstopsplenda : 1.0 : 1.0 : 1.0 : valley     \
+    | opensalami : 1.0 : 1.0 : 1.0 : enclave         \
+  ~ | target_group_script : target_group_tuul_valley \
+    | enable_dynamic_targeting : true                \
+    | smooth_dynamic_targeting : true
+
+_mu_cahoots                                                                    \
+    = | ___default___ : 1.0 : 1.0 : 1.0 : slime_diva_combat                    \
+      | <atlyss>_atlyssSet_catacomb_action5 : 1.0 : 1.0 : 1.0 : regular_combat \
+    ~ | target_group_script : target_group_effold_terrace                      \
+      | enable_dynamic_targeting : true                                        \
+      | smooth_dynamic_targeting : true                                        \
+      | chain_route : true

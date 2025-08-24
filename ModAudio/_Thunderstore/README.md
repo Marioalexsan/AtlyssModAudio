@@ -6,6 +6,8 @@ You can use this mod to make audio pack mods, or to just replace audio on a whim
 
 Currently, `.ogg`, `.mp3` and `.wav` formats are supported, although `.ogg` and `.mp3` are preferred due to reduced file size.
 
+You can also write custom scripting behaviour with embedded JavaScript, allowing you to implement dynamic music (currently an experimental feature).
+
 # How to use
 
 ModAudio loads custom audio and routing information from any custom mods you have in the plugins folder (`BepInEx/plugins/YourTeam-YourModName/audio`).
@@ -14,6 +16,8 @@ It uses a combination of audio files and the `__routes.txt` configuration file l
 
 It also loads custom audio from its own config folder (`BepInEx/config/Marioalexsan.ModAudio_UserAudioPack/audio`). 
 You can place your custom audio in here if you don't want to make a standalone mod. The folder is normally created when you load the mod for the first time.
+
+For each audio pack loaded, there is also an option to enable or disable that pack in EasySettings's `Mods` menu, or in the mod's configuration under `BepInEx/config/Marioalexsan.ModAudio.cfg`.
 
 # Where is this audio folder located???
 
@@ -53,7 +57,8 @@ ModFolder
 
 **__routes.txt file contents**
 ```
-# Empty lines and lines that start with a hashtag are ignored
+# Anything after a hashtag is a comment, and will be ignored
+# Also, you can end a line with a backslash (`\`) to continue your route definition on the next line
 
 # Musicss
 _mu_wonton5 = darkest_dungeon_combat
@@ -195,16 +200,18 @@ If the first mod's replacement has a weight of 1, and the second one has a weigh
 
 For mods with overlays, each of the mods will trigger overlays independently, so you might want to not install too many hitsound audio packs at once.
 
-## Audio logging
+## Debug menu - audio logging, pack info, etc.
 
-There are multiple options available for logging how audio packs are loaded and played. All of the options can be configured in `BepInEx/config/Marioalexsan.ModAudio.cfg` (generated on first load), or in Nessie's EasySettings.
+A custom debug menu is available by pressing the `DebugMenuButton` button (configurable with EasySettings or in `BepInEx/config/Marioalexsan.ModAudio.cfg` > `General` > `DebugMenuButton`).
+
+This custom debug menu can be used to inspect played audio, or view details about loaded packs. It also includes lots of filter options.
+
+There are multiple options available for logging how audio packs are loaded and played, including various filters
 
 - LogPackLoading - logs details about loaded packs - default: true
 - LogAudioPlayed - logs details about audio that is played in-game - default: true
 - UseMaxDistanceForLogging - if true, only audio that is within a certain distance from the player will be logged - default: false
 - MaxDistanceForLogging - distance from player to log audio within, in units. For reference, Angela is about 12 units or so in height - default: 32, min: 32, max: 2048
-
-For each audio pack loaded, there is also an option to enable or disable that pack.
 
 # How do I use scripts?
 
@@ -274,19 +281,20 @@ export function target_group_tuul_valley(route) {
 The callback receives one parameter and returns nothing:
 - `route`
   - `targetGroup` - the current target group for this route (empty if this is being routed for the first time)
-    - Set it to `___skip___` to skip this route entirely, effectively filtering it out from the route selectio
-    - Set it to `___all___` to select all of the target clips for playing
+    - Set it to `all` to select all of the target clips for playing (this is also the default group value)
     - Set it to any other string value to select only the target clips that have the given value as their group
+  - `skipRoute` - false by default; set to `true` to skip this route, effectively removing it from the route pool for this source
 
 If `enable_dynamic_targeting` is set to true with `~ target_group_script : function_name | enable_dynamic_targeting : true`, then this callback will be called again each frame for this audio source.
-- `route.targetGroup` will contain the current group of the routed audio
 - Having your callback set a different group than the current target group will cause ModAudio to reroute the audio source to the new clip
 - This can be used to implement things like dynamic region audio, combat music, and other scriptable things
+
+If `smooth_dynamic_targeting` is set to true, then the engine will use a short fade out and fade in for switching groups, instead of doing it instantly.
 
 # Mod Compatibility
 
 ModAudio targets the following game versions and mods:
-- ATLYSS v1.6.2b
-- Nessie's EasySettings v1.1.3 (optional dependency used for configuration)
+- ATLYSS 82025.a2
+- Nessie's EasySettings v1.1.8 (optional dependency used for configuration)
 
 Compatibility with other game versions and mods is not guaranteed, especially for updates with major changes.
