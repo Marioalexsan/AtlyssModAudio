@@ -30,7 +30,6 @@ public enum AudioFlags : uint
     OneShotStopsIfSourceStops = 1 << 3,
     ShouldUpdateDynamicTargeting = 1 << 4,
     IsSwappingTargets = 1 << 5,
-    IsChainRouted = 1 << 6,
     VolumeLock = 1 << 7,
     PitchLock = 1 << 8,
     LoopLock = 1 << 9,
@@ -158,7 +157,8 @@ public class ModAudioSource
 
         ClearRoutes();
 
-        Flags = AudioFlags.None;
+        // Only clear flags that are set as part of routing
+        ClearFlag(AudioFlags.ShouldUpdateDynamicTargeting | AudioFlags.IsSwappingTargets);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

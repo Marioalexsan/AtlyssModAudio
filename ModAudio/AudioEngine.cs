@@ -6,6 +6,7 @@ using Marioalexsan.ModAudio.Scripting;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Audio;
 
@@ -13,6 +14,15 @@ namespace Marioalexsan.ModAudio;
 
 internal static class AudioEngine
 {
+    private static readonly ProfilerMarker _routing = new ProfilerMarker("ModAudio Route()");
+    private static readonly ProfilerMarker _playRouting = new ProfilerMarker("ModAudio Route() from AudioPlayed()");
+    private static readonly ProfilerMarker _fetchSources = new ProfilerMarker("ModAudio Update() fetch active sources");
+    private static readonly ProfilerMarker _innerLoop = new ProfilerMarker("ModAudio Update() inner loop");
+    private static readonly ProfilerMarker _executeUpdate = new ProfilerMarker("ModAudio Update() execute script updates");
+    private static readonly ProfilerMarker _executeTargetGroups = new ProfilerMarker("ModAudio Update() execute script target groups");
+    private static readonly ProfilerMarker _cleanupSources = new ProfilerMarker("ModAudio Update() cleanup sources");
+    private static readonly ProfilerMarker _updateTargeting = new ProfilerMarker("ModAudio Update() update targeting");
+
     public const string DefaultClipKeyword = "___default___";
     public const string EmptyClipKeyword = "___nothing___";
     public const string ErrorClipKeyword = "!!! error !!!";
@@ -26,8 +36,9 @@ internal static class AudioEngine
     private static readonly System.Random RNG = new();
     private static readonly System.Diagnostics.Stopwatch Watch = new();
 
-    private static readonly Dictionary<AudioSource, ModAudioSource> TrackedSources = new(8192);
-    private static readonly HashSet<AudioSource> TrackedPlayOnAwakeSources = [];
+    public static readonly Dictionary<AudioSource, ModAudioSource> TrackedSources = new(8192);
+    public static readonly HashSet<AudioSource> TrackedPlayOnAwakeSources = [];
+    public static readonly HashSet<ModAudioSource> TrackedOneShots = [];
 
     public static List<AudioPack> AudioPacks { get; } = [];
     public static IEnumerable<AudioPack> EnabledPacks => AudioPacks.Where(x => x.HasFlag(PackFlags.Enabled));
@@ -44,8 +55,8 @@ internal static class AudioEngine
     {
         get
         {
-            // Setting this too low might cause it to fail for playOnAwake sources
-            // This is due to the detection method in Update(), which relies on scanning audio sources every frame
+            // Setting this too low might cause it to fail for playOnAwake activeSources
+            // This is due to the detection method in Update(), which relies on scanning audio activeSources every frame
             // This is why we need to use a minimum size (a few game frames at least).
 
             const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
@@ -123,6 +134,7 @@ internal static class AudioEngine
             // Restore previous state and unlock if needed
             Dictionary<AudioSource, bool> wasPlayingPreviously = [];
 
+            // Note: I'm fine with FindObjectsOfType here since it's a one time thing per reload
             foreach (var audio in UnityEngine.Object.FindObjectsOfType<AudioSource>(true))
             {
                 wasPlayingPreviously[audio] = audio.isPlaying;
@@ -179,6 +191,7 @@ internal static class AudioEngine
             Logging.LogInfo("Restarting audio sources...");
 
             // Restart audio
+            // Note: I'm fine with FindObjectsOfType here since it's a one time thing per reload
             foreach (var audio in UnityEngine.Object.FindObjectsOfType<AudioSource>(true))
             {
                 if (wasPlayingPreviously[audio])
@@ -206,32 +219,50 @@ internal static class AudioEngine
             {
                 if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update))
                 {
+                    _executeUpdate.Begin();
                     ExecuteUpdate(pack);
+                    _executeUpdate.End();
                 }
             }
 
-            // Check play on awake sources
+            // Check play on awake activeSources
 
-            foreach (var audio in UnityEngine.Object.FindObjectsOfType<AudioSource>(true))
-            {
-                if (audio.playOnAwake)
+            // This is to detect playOnAwake audio activeSources that have been played
+            // directly by the engine and not via the script API
+
+            _innerLoop.Begin();
+
+            Utils.CachedForeach(
+                TrackedPlayOnAwakeSources,
+                (in AudioSource source) =>
                 {
-                    // This is to detect playOnAwake audio sources that have been played
-                    // directly by the engine and not via the script API
-
-                    if (!TrackedPlayOnAwakeSources.Contains(audio) && audio.isActiveAndEnabled && audio.isPlaying)
-                    {
-                        AudioPlayed(audio);
-                    }
-                    else if (TrackedPlayOnAwakeSources.Contains(audio) && !audio.isActiveAndEnabled && !audio.isPlaying)
-                    {
-                        AudioStopped(audio, false);
-                    }
+                    if (!source.IsNullOrDestroyed() && !source.isActiveAndEnabled && !source.isPlaying)
+                        AudioStopped(source, false);
                 }
+            );
+
+            _fetchSources.Begin();
+            var activeSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            _fetchSources.End();
+
+            foreach (var audio in activeSources)
+            {
+                if (!audio.playOnAwake)
+                    continue;
+
+                if (!TrackedPlayOnAwakeSources.Contains(audio) && audio.isActiveAndEnabled && audio.isPlaying)
+                    AudioPlayed(audio);
             }
 
+            _innerLoop.End();
+
+            _cleanupSources.Begin();
             CleanupSources();
+            _cleanupSources.End();
+
+            _updateTargeting.Begin();
             UpdateDynamicTargeting();
+            _updateTargeting.End();
         }
         catch (Exception e)
         {
@@ -363,6 +394,18 @@ internal static class AudioEngine
             }
         );
 
+        // Cleanup dead one shots
+        Utils.CachedForeach(
+            TrackedOneShots,
+            static (in ModAudioSource source) =>
+            {
+                if (source.Audio.IsNullOrDestroyed())
+                {
+                    TrackedOneShots.Remove(source);
+                }
+            }
+        );
+
         // Cleanup stale stuff
         Utils.CachedForeach(
             TrackedSources,
@@ -374,8 +417,8 @@ internal static class AudioEngine
                 }
                 else if (source.Value.HasFlag(AudioFlags.IsDedicatedOneShotSource) && !source.Key.isPlaying)
                 {
-                    TrackedSources.Remove(source.Key);
                     AudioStopped(source.Key, false);
+                    TrackedSources.Remove(source.Key);
                     UnityEngine.Object.Destroy(source.Key);
                 }
             }
@@ -436,12 +479,14 @@ internal static class AudioEngine
 
         var oneShotSource = state.Audio.CreateCloneOnTarget(targetObject);
 
-        oneShotSource.playOnAwake = false; // This should be false for one shot sources, but whatever
+        oneShotSource.playOnAwake = false; // This should be false for one shot activeSources, but whatever
         oneShotSource.loop = false; // Otherwise this won't play one-shot
 
         var createdState = GetOrCreateModAudioSource(oneShotSource);
         createdState.SetFlag(AudioFlags.IsDedicatedOneShotSource);
         createdState.OneShotOrigin = state.Audio;
+
+        TrackedOneShots.Add(createdState); // Also track these separately for performance reasons
 
         return createdState;
     }
@@ -452,14 +497,12 @@ internal static class AudioEngine
         {
             // Move to a dedicated audio source for better control. Note: This is likely overkill and might mess with other mods?
 
-            var state = GetOrCreateModAudioSource(source);
-
-            var oneShot = CreateOneShotFromSource(state);
+            var oneShot = CreateOneShotFromSource(GetOrCreateModAudioSource(source));
             oneShot.Audio.volume *= volumeScale;
             oneShot.Audio.clip = clip;
 
-            state.InitialState.Clip = oneShot.Audio.clip;
-            state.InitialState.Volume = oneShot.Audio.volume;
+            oneShot.InitialState.Clip = oneShot.Audio.clip;
+            oneShot.InitialState.Volume = oneShot.Audio.volume;
 
             oneShot.Audio.Play();
 
@@ -490,7 +533,10 @@ internal static class AudioEngine
 
             var wasPlaying = state.Audio.isPlaying;
 
+            _playRouting.Begin();
             Route(state, false);
+            _playRouting.End();
+
             state.LogDebugDisplay();
 
             state.ClearFlag(AudioFlags.WasStoppedOrDisabled);
@@ -506,6 +552,7 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
+            _playRouting.End();
             Logging.LogError($"ModAudio crashed in {nameof(AudioPlayed)}! Please report this error to the mod developer:");
             Logging.LogError(e.ToString());
             Logging.LogError($"AudioSource that caused the crash:");
@@ -519,31 +566,38 @@ internal static class AudioEngine
     {
         try
         {
-            var state = GetOrCreateModAudioSource(source);
-
-            if (source.playOnAwake)
-                TrackedPlayOnAwakeSources.Remove(source);
+            // Do not track sources here
+            var state = GetModAudioSourceIfExists(source);
 
             if (stopOneShots)
             {
                 Utils.CachedForeach(
-                    TrackedSources,
+                    TrackedOneShots,
                     source,
-                    static (in KeyValuePair<AudioSource, ModAudioSource> trackedSource, in AudioSource stoppedSource) =>
+                    static (in ModAudioSource trackedSource, in AudioSource stoppedSource) =>
                     {
-                        if (!trackedSource.Value.HasFlag(AudioFlags.IsDedicatedOneShotSource | AudioFlags.OneShotStopsIfSourceStops))
+                        if (!trackedSource.HasFlag(AudioFlags.IsDedicatedOneShotSource | AudioFlags.OneShotStopsIfSourceStops))
                             return;
 
-                        if (trackedSource.Value.OneShotOrigin != stoppedSource || trackedSource.Key.IsNullOrDestroyed())
+                        if (trackedSource.OneShotOrigin != stoppedSource || trackedSource.Audio.IsNullOrDestroyed())
                             return;
 
-                        if (trackedSource.Key.isPlaying)
-                            trackedSource.Key.Stop();
+                        if (trackedSource.Audio.isPlaying)
+                            trackedSource.Audio.Stop();
                     }
                 );
             }
 
-            state.SetFlag(AudioFlags.WasStoppedOrDisabled);
+            if (source.playOnAwake)
+                TrackedPlayOnAwakeSources.Remove(source);
+
+            if (state != null)
+            {
+                if (state.HasFlag(AudioFlags.IsDedicatedOneShotSource))
+                    TrackedOneShots.Remove(state);
+
+                state.SetFlag(AudioFlags.WasStoppedOrDisabled);
+            }
 
             return true;
         }
@@ -576,7 +630,9 @@ internal static class AudioEngine
     {
         if (!CachedRoutingTargetGroupData.TryGetValue(route, out var routeApi))
         {
+            _executeTargetGroups.Begin();
             ExecuteTargetGroup(pack, route, routeApi = new TargetGroupRouteAPI(source));
+            _executeTargetGroups.End();
             CachedRoutingTargetGroupData[route] = routeApi;
         }
 
@@ -617,7 +673,6 @@ internal static class AudioEngine
             AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
             pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             routeApi.SkipRoute = true;
-            return;
         }
         PostScriptActions();
     }
@@ -651,9 +706,9 @@ internal static class AudioEngine
         PostScriptActions();
     }
 
-    private static bool MatchesSource(ModAudioSource source, Route route)
+    private static bool MatchesSource(AudioStepState state, Route route)
     {
-        var originalClipName = source.AppliedState.Clip?.name;
+        var originalClipName = state.Clip?.name;
 
         if (originalClipName == null)
             return false;
@@ -676,6 +731,8 @@ internal static class AudioEngine
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false; // Do not apply changes
 
+        _routing.Begin();
+
         CachedRoutingTargetGroupData.Clear();
 
         int currentChainRoutes = 0;
@@ -693,6 +750,8 @@ internal static class AudioEngine
         {
             var preferredRoute = currentChainRoutes <= previousRoutes.Length ? previousRoutes[currentChainRoutes - 1] : null;
 
+            var stateBeforeRouting = source.AppliedState;
+
             if (!ExecuteRouteStep(source, preferredRoute))
                 break;
 
@@ -701,7 +760,7 @@ internal static class AudioEngine
             if (source.HasFlag(AudioFlags.HasEncounteredErrors))
                 break; // Stop further routing or overlays
 
-            PlayOverlays(source, routeData.Route);
+            PlayOverlays(source, stateBeforeRouting, routeData.Route);
 
             if (routeData.SelectedClip == EmptyClip)
                 break; // Can't route 
@@ -720,6 +779,7 @@ internal static class AudioEngine
 
         CachedRoutingTargetGroupData.Clear();
 
+        _routing.End();
         return wasRouted;
     }
 
@@ -764,7 +824,7 @@ internal static class AudioEngine
         }
     }
 
-    private static void PlayOverlays(ModAudioSource source, Route? replacementRoute)
+    private static void PlayOverlays(ModAudioSource source, AudioStepState stateBeforeRouting, Route? replacementRoute)
     {
         // Note: Overlays should not be able to trigger other overlays
         // Otherwise you can easily create infinite loops
@@ -778,7 +838,7 @@ internal static class AudioEngine
                 if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
                     continue;
 
-                if (!(route.OverlayClips.Count > 0 && MatchesSource(source, route) && (!route.LinkOverlayAndReplacement || replacementRoute == route)))
+                if (!(route.OverlayClips.Count > 0 && MatchesSource(stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || replacementRoute == route)))
                     continue;
 
                 var routeApi = GetCachedTargetGroup(source, pack, route);
@@ -809,7 +869,7 @@ internal static class AudioEngine
         {
             foreach (var route in pack.Config.Routes)
             {
-                if (!MatchesSource(source, route))
+                if (!MatchesSource(source.AppliedState, route))
                     continue;
 
                 // Disallow selecting routes that are already present in the chain

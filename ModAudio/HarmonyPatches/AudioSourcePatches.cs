@@ -1,30 +1,64 @@
 ﻿using HarmonyLib;
+using Unity.Profiling;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 namespace Marioalexsan.ModAudio.HarmonyPatches;
 
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.PlayHelper))]
 static class AudioSource_PlayHelper
 {
-    static bool Prefix(AudioSource source) => AudioEngine.AudioPlayed(source);
+    private static readonly ProfilerMarker Profiler = new ProfilerMarker("ModAudio hook AudioSource.PlayHelper()");
+
+    static bool Prefix(AudioSource source)
+    {
+        Profiler.Begin();
+        bool result = AudioEngine.AudioPlayed(source);
+        Profiler.End();
+        return result;
+    }
 }
 
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.Play), typeof(double))]
 static class AudioSource_Play
 {
-    static bool Prefix(AudioSource __instance) => AudioEngine.AudioPlayed(__instance);
+    private static readonly ProfilerMarker Profiler = new ProfilerMarker("ModAudio hook AudioSource.Play()");
+
+    static bool Prefix(AudioSource __instance)
+    {
+        Profiler.Begin();
+        bool result = AudioEngine.AudioPlayed(__instance);
+        Profiler.End();
+        return result;
+    }
 }
 
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.PlayOneShotHelper))]
 static class AudioSource_PlayOneShotHelper
 {
-    static bool Prefix(AudioSource source, AudioClip clip, float volumeScale) => AudioEngine.OneShotClipPlayed(clip, source, volumeScale);
+    private static readonly ProfilerMarker Profiler = new ProfilerMarker("ModAudio hook AudioSource.PlayOneShotHelper()");
+
+    static bool Prefix(AudioSource source, AudioClip clip, float volumeScale)
+    {
+        Profiler.Begin();
+        bool result = AudioEngine.OneShotClipPlayed(clip, source, volumeScale);
+        Profiler.End();
+        return result;
+    }
 }
 
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.Stop), typeof(bool))]
 static class AudioSource_Stop
 {
-    static bool Prefix(AudioSource __instance, bool stopOneShots) => AudioEngine.AudioStopped(__instance, stopOneShots);
+    private static readonly ProfilerMarker Profiler = new ProfilerMarker("ModAudio hook AudioSource.Stop()");
+
+    static bool Prefix(AudioSource __instance, bool stopOneShots)
+    {
+        Profiler.Begin();
+        bool result = AudioEngine.AudioStopped(__instance, stopOneShots);
+        Profiler.End();
+        return result;
+    }
 }
 
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.volume), MethodType.Setter)]

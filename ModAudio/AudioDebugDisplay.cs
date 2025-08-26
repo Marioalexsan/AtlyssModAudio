@@ -146,7 +146,7 @@ public class AudioDebugDisplay : MonoBehaviour
             else if (_selectedTab == 1)
                 RenderAudioPacks();
 
-            else if (_selectedTab == 1)
+            else if (_selectedTab == 2)
                 RenderAudioSources();
 
         }, "ModAudio");
@@ -175,18 +175,40 @@ public class AudioDebugDisplay : MonoBehaviour
         else if (_selectedTab == 1)
             UpdateAudioPacks();
 
-        else if (_selectedTab == 1)
+        else if (_selectedTab == 2)
             UpdateAudioSources();
     }
 
     private void UpdateAudioSources()
     {
+        if (_totalSourcesLastFetchedAt + TimeSpan.FromSeconds(0.25) < DateTime.Now)
+        {
+            _totalSourcesLastFetchedAt = DateTime.Now;
 
+            // Fetch this separately and directly
+            var allSources = FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            _totalActiveAudioSources = 0;
+            _totalInactiveAudioSources = 0;
+
+            for (int i = 0; i < allSources.Length; i++)
+            {
+                if (allSources[i].isActiveAndEnabled)
+                    _totalActiveAudioSources++;
+                else
+                    _totalInactiveAudioSources++;
+            }
+        }
     }
 
     private void RenderAudioSources()
     {
-
+        GUILayout.Label($"[Note: this tab is not finished yet!]");
+        GUILayout.Label($"Total active audio sources (Unity): {_totalActiveAudioSources}");
+        GUILayout.Label($"Total inactive audio sources (Unity): {_totalInactiveAudioSources}");
+        GUILayout.Label($"Total sources tracked by ModAudio: {AudioEngine.TrackedSources.Count}");
+        GUILayout.Label($"Total playOnAwake sources tracked: {AudioEngine.TrackedPlayOnAwakeSources.Count}");
+        GUILayout.Label($"Total one shot sources tracked: {AudioEngine.TrackedOneShots.Count}");
     }
 
     private void UpdateAudioPacks()
@@ -495,7 +517,7 @@ public class AudioDebugDisplay : MonoBehaviour
 
     private static Rect _windowPos = new Rect(Screen.width * 0.1f, Screen.height * 0.1f, Screen.width * 0.5f, Screen.height * 0.5f);
 
-    private readonly string[] _tabs = ["Audio logs", "Audio packs"]; // TODO: Audio sources tab
+    private readonly string[] _tabs = ["Audio logs", "Audio packs", "Audio sources"]; // TODO: Audio sources tab
     private static int _selectedTab = 0;
 
     // Audio Packs start
@@ -563,6 +585,10 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _totalDisplayedMessages = 0;
 
     private static readonly ProfilerMarker _renderLogsMarker = new ProfilerMarker("ModAudio debug menu logs");
+
+    private static int _totalActiveAudioSources;
+    private static int _totalInactiveAudioSources;
+    private static DateTime _totalSourcesLastFetchedAt = DateTime.UnixEpoch;
 
     // Audio Log Field end
 }

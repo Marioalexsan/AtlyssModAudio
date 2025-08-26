@@ -8,6 +8,7 @@
     <PropertyGroup>
         <!-- Create a package? -->
         <CreateThunderstorePackage>true</CreateThunderstorePackage>
+        <EnableReleaseProfiling>true</EnableReleaseProfiling>
 
         <ThunderstorePackageName>ModAudio</ThunderstorePackageName>
         <ThunderstoreTeamName>Marioalexsan</ThunderstoreTeamName>
