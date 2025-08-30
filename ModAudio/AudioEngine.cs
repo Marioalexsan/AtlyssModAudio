@@ -810,6 +810,11 @@ internal static class AudioEngine
                 oneShot.SetFlag(AudioFlags.LoopWasForced);
                 oneShot.Audio.loop = route.ForceLoop.Value;
             }
+            else
+            {
+                source.ClearFlag(AudioFlags.LoopWasForced);
+                source.Audio.loop = source.InitialState.Loop;
+            }
 
             oneShot.AppliedState.Clip = oneShot.Audio.clip;
             oneShot.AppliedState.Volume = oneShot.Audio.volume;
@@ -918,6 +923,11 @@ internal static class AudioEngine
         {
             source.SetFlag(AudioFlags.LoopWasForced);
             source.Audio.loop = selectedRoute.ForceLoop.Value;
+        }
+        else
+        {
+            source.ClearFlag(AudioFlags.LoopWasForced);
+            source.Audio.loop = source.InitialState.Loop;
         }
 
         source.AppliedState.Volume = source.Audio.volume;

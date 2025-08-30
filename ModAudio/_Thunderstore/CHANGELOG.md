@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2] - 2025-Aug-30
+
+### Fixed
+
+- Fixed `force_loop` not working as expected with multiple routes
+- Fixed `force_loop` still using `false` as a default value, causing it to force looping off by default instead of using existing loop settings
+
 ## [3.1.1] - 2025-Aug-30
 
 ### Fixed
