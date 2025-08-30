@@ -46,7 +46,7 @@ internal static class AudioEngine
     public static Dictionary<string, AudioClip> LoadedVanillaClips = [];
     public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
 
-    public static AudioPack? CurrentlyCalledScriptPack { get; private set; }
+    public static AudioPack? CurrentlyCalledScriptPack { get; internal set; }
 
     // Temporary data for routing
     private static readonly Dictionary<Route, TargetGroupRouteAPI> CachedRoutingTargetGroupData = [];
@@ -613,14 +613,14 @@ internal static class AudioEngine
         }
     }
 
-    private static void PreScriptActions(AudioPack callingPack)
+    internal static void PreScriptActions(AudioPack callingPack)
     {
         AudioEngineAPI.UpdateGameState();
         ContextAPI.UpdateGameState();
         CurrentlyCalledScriptPack = callingPack;
     }
 
-    private static void PostScriptActions()
+    internal static void PostScriptActions()
     {
         MapInstance_Handle_AudioSettings.ForceCombatMusic = AudioEngineAPI.ForceCombatMusic;
         CurrentlyCalledScriptPack = null;
@@ -804,8 +804,12 @@ internal static class AudioEngine
                 oneShot.Audio.pitch *= oneShot.InitialState.Pitch;
             }
 
-            if (route.ForceLoop)
-                oneShot.Audio.loop = true;
+            // Use an override if specified
+            if (route.ForceLoop.HasValue)
+            {
+                oneShot.SetFlag(AudioFlags.LoopWasForced);
+                oneShot.Audio.loop = route.ForceLoop.Value;
+            }
 
             oneShot.AppliedState.Clip = oneShot.Audio.clip;
             oneShot.AppliedState.Volume = oneShot.Audio.volume;
@@ -909,8 +913,12 @@ internal static class AudioEngine
             source.Audio.pitch *= source.InitialState.Pitch;
         }
 
-        if (selectedRoute.ForceLoop)
-            source.Audio.loop = true;
+        // Use an override if specified
+        if (selectedRoute.ForceLoop.HasValue)
+        {
+            source.SetFlag(AudioFlags.LoopWasForced);
+            source.Audio.loop = selectedRoute.ForceLoop.Value;
+        }
 
         source.AppliedState.Volume = source.Audio.volume;
         source.AppliedState.Pitch = source.Audio.pitch;

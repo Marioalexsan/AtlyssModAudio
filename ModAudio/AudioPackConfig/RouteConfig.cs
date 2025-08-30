@@ -1,4 +1,6 @@
-﻿namespace Marioalexsan.ModAudio;
+﻿using System.Globalization;
+
+namespace Marioalexsan.ModAudio;
 
 public class RouteConfig
 {
@@ -128,13 +130,13 @@ public class RouteConfig
                 var pitch = 1f;
                 var group = "";
 
-                if (fields.Length > 1 && !float.TryParse(fields[1], out randomWeight))
+                if (fields.Length > 1 && !float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse random weight {fields[1]} for {replacementName}, defaulting to {randomWeight}.");
 
-                if (fields.Length > 2 && !float.TryParse(fields[2], out volume))
+                if (fields.Length > 2 && !float.TryParse(fields[2], NumberStyles.Number, CultureInfo.InvariantCulture, out volume))
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse volume {fields[2]} for {replacementName}, defaulting to {volume}.");
 
-                if (fields.Length > 3 && !float.TryParse(fields[3], out pitch))
+                if (fields.Length > 3 && !float.TryParse(fields[3], NumberStyles.Number, CultureInfo.InvariantCulture, out pitch))
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse pitch {fields[3]} for {replacementName}, defaulting to {pitch}.");
 
                 if (fields.Length > 4)
@@ -174,17 +176,17 @@ public class RouteConfig
                 var volume = 1f;
                 var pitch = 1f;
 
-                if (fields.Length > 1 && !float.TryParse(fields[1], out randomWeight))
+                if (fields.Length > 1 && !float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
                 {
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse random weight {fields[1]} for {overlayName}, defaulting to {ModAudio.DefaultWeight}.");
                 }
 
-                if (fields.Length > 2 && !float.TryParse(fields[2], out volume))
+                if (fields.Length > 2 && !float.TryParse(fields[2], NumberStyles.Number, CultureInfo.InvariantCulture, out volume))
                 {
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse volume {fields[2]} for {overlayName}, defaulting to 1.");
                 }
 
-                if (fields.Length > 3 && !float.TryParse(fields[3], out pitch))
+                if (fields.Length > 3 && !float.TryParse(fields[3], NumberStyles.Number, CultureInfo.InvariantCulture, out pitch))
                 {
                     Logging.LogWarning($"Line {routeStartLine}: Couldn't parse pitch {fields[3]} for {overlayName}, defaulting to 1.");
                 }
@@ -250,15 +252,15 @@ public class RouteConfig
                         break;
                     case "replacement_weight":
                     case "weight":
-                        if (parsed = float.TryParse(fields[1], out float replacementWeight))
+                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float replacementWeight))
                             route.ReplacementWeight = replacementWeight;
                         break;
                     case "volume":
-                        if (parsed = float.TryParse(fields[1], out float volume))
+                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float volume))
                             route.Volume = volume;
                         break;
                     case "pitch":
-                        if (parsed = float.TryParse(fields[1], out float pitch))
+                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float pitch))
                             route.Pitch = pitch;
                         break;
                     case "force_loop":
@@ -410,7 +412,7 @@ public class RouteConfig
                 if (customClipData[0].Trim() == "")
                     Logging.LogWarning($"Line {lineNumber}: Expected a clip name.");
 
-                if (!float.TryParse(customClipData[1], out float clipVolume))
+                if (!float.TryParse(customClipData[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float clipVolume))
                     Logging.LogWarning($"Line {lineNumber}: Volume is not a number.");
 
                 clipVolumes[customClipData[0].Trim()] = clipVolume;
@@ -451,7 +453,7 @@ public class RouteConfig
 
             if (fields.Length > 1)
             {
-                if (!float.TryParse(fields[1], out randomWeight))
+                if (!float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
                 {
                     Logging.LogWarning($"Line {lineNumber}: Couldn't parse random weight {fields[1]} for {clipName} => {replacementName}, defaulting to {ModAudio.DefaultWeight}.");
                 }

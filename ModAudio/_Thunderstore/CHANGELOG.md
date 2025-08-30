@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2025-Aug-30
+
+### Fixed
+
+- Fixed a skill issue from the mod author where the changelog and readme for 3.1.0 was not updated
+
+## [3.1.0] - 2025-Aug-30
+
+### Changed
+
+- `~ force_loop : false` will now force audio sources to **not** loop if it's specified; previously, it was a no-op as far as audio sources were concerned
+  - `~ force_loop : true` will still force looping on, and not specifying the property will make the audio source use whatever looping properly it normally uses
+
+### Fixed
+
+- Fixed audio packs displaying their name as "<null>" when calling `console.log()` in the global scope of the JavaScript module
+- Fixed route numbers (volume, pitch, weights, etc.) incorrectly using commas on some PCs with cultures / languages that normally use commas for decimal separators
+
 ## [3.0.2] - 2025-Aug-26
 
 ### Fixed

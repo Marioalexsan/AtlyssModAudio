@@ -315,6 +315,7 @@ public static class AudioPackLoader
 
     private static void LoadScriptData(string path, AudioPack pack)
     {
+        AudioEngine.CurrentlyCalledScriptPack = pack;
         try
         {
             var scriptPath = Path.Combine(Path.GetDirectoryName(path), RoutesScriptName);
@@ -342,5 +343,6 @@ public static class AudioPackLoader
             pack.ScriptMethods.Clear();
             pack.SetFlag(PackFlags.ForceDisableScripts | PackFlags.HasEncounteredErrors);
         }
+        AudioEngine.CurrentlyCalledScriptPack = null;
     }
 }

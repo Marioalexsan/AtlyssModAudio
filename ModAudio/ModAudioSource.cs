@@ -30,6 +30,7 @@ public enum AudioFlags : uint
     OneShotStopsIfSourceStops = 1 << 3,
     ShouldUpdateDynamicTargeting = 1 << 4,
     IsSwappingTargets = 1 << 5,
+    LoopWasForced = 1 << 6,
     VolumeLock = 1 << 7,
     PitchLock = 1 << 8,
     LoopLock = 1 << 9,

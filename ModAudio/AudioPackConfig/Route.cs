@@ -65,8 +65,10 @@ public class Route
 
     /// <summary>
     /// If set to true, the audio source will be forced to loop even if it normally shouldn't.
+    /// If set to false, the audio source will be forced to not loop, even when it normally should.
+    /// If null, the audio source will retain whatever configuration it originally has.
     /// </summary>
-    public bool ForceLoop { get; set; } = false;
+    public bool? ForceLoop { get; set; } = false;
 
     /// <summary>
     /// The name of an exported JavaScript method from the audio pack script that dynamically picks a target group to play.

@@ -94,17 +94,10 @@ public static class AudioSourceExtensions
         if (state.HasFlag(AudioFlags.IsDedicatedOneShotSource))
             messageDisplay += " oneshot";
 
-        if (state.AppliedState.Loop)
-        {
-            if (state.InitialState.Loop != state.AppliedState.Loop)
-            {
-                messageDisplay += " loop(forced)";
-            }
-            else
-            {
-                messageDisplay += " loop";
-            }
-        }
+        messageDisplay += " loop_" + (state.AppliedState.Loop ? "on" : "off");
+
+        if (state.HasFlag(AudioFlags.LoopWasForced))
+            messageDisplay += "(forced)";
 
         if (dynamicRoute)
             messageDisplay += " dynamic";
