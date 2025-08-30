@@ -267,6 +267,10 @@ public class RouteConfig
                         if (parsed = bool.TryParse(fields[1], out bool force_loop))
                             route.ForceLoop = force_loop;
                         break;
+                    case "force_play":
+                        if (parsed = bool.TryParse(fields[1], out bool force_play))
+                            route.ForcePlay = force_play;
+                        break;
                     default:
                         Logging.LogWarning($"Line {routeStartLine}: Unrecognized route effect / setting {fields[0]}.");
                         break;

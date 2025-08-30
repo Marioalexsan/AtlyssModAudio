@@ -295,6 +295,7 @@ internal static class AudioEngine
     {
         bool groupsMismatched = false;
         bool useSmoothing = false;
+        bool forcePlay = false;
 
         for (int i = 0; i < source.RouteCount; i++)
         {
@@ -302,6 +303,7 @@ internal static class AudioEngine
 
             // Use smoothing if any routes demand it
             useSmoothing = useSmoothing || routeData.Route.SmoothDynamicTargeting;
+            forcePlay = routeData.Route.ForcePlay; // should take the value of the last route in the chain
 
             if (routeData.Route.EnableDynamicTargeting)
             {
@@ -355,7 +357,7 @@ internal static class AudioEngine
                     source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
                 }
 
-                if (wasPlaying)
+                if (wasPlaying || forcePlay)
                     source.PlayWithoutRouting();
             }
         }

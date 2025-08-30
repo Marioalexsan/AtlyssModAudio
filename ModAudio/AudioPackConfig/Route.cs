@@ -71,6 +71,13 @@ public class Route
     public bool? ForceLoop { get; set; } = null;
 
     /// <summary>
+    /// If set to true, the audio source will be forced to play after dynamic targeting switching is applied.
+    /// This can be useful to make sure that music plays if conditions change, even if the game happens to have the audio source stopped.
+    /// If set to false, ModAudio uses its default behaviour of preserving play state.
+    /// </summary>
+    public bool ForcePlay { get; set; } = false;
+
+    /// <summary>
     /// The name of an exported JavaScript method from the audio pack script that dynamically picks a target group to play.
     /// If this is specified, only the target clips that have the specified group will be chosen to play.
     /// One special group is available:

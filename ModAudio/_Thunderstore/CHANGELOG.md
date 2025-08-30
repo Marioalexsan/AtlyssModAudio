@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2025-Aug-30
+
+### Added
+
+- Added a `force_play` effect: setting `~ force_play : true` will cause audio to be forced to play as part of dynamic targeting, even if the audio source is stopped at the moment
+  - This can be useful for enforcing that the switched music will play when the group is changed; for example, going from a stopped day music for Outer Sanctum, to a playing day music for Chapel of the Elders's subregion
+
 ## [3.1.2] - 2025-Aug-30
 
 ### Fixed
