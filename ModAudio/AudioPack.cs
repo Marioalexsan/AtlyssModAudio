@@ -67,7 +67,7 @@ public class AudioPack
     public void ClearFlag(PackFlags flag) => Flags &= ~flag;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool HasFlag(PackFlags flag) => Flags.HasFlag(flag);
+    public bool HasFlag(PackFlags flag) => (Flags & flag) == flag; // Do not use Enum.HasFlag, it's a boxing operation and allocates junk
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AssignFlag(PackFlags flag, bool shouldBeSet)

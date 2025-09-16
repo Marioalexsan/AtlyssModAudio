@@ -35,6 +35,7 @@ public class ModAudio : BaseUnityPlugin
         _plugin = this;
 
         DebugMenuButton = Config.Bind("General", nameof(DebugMenuButton), KeyCode.None, "Button to use for toggling on/off the debug menu for ModAudio. This menu contains various logs for the mod, and can be useful for debugging audio packs, clips and other issues.");
+        SourceDetectionRate = Config.Bind("Engine", nameof(SourceDetectionRate), Marioalexsan.ModAudio.SourceDetectionRate.Fast, "How fast to detect new audio sources. Slower detection is less resource demanding, but can sometimes fail to detect playOnAwake audio sources. Realtime will make it frame accurate, but will cause a significant impact on FPS.");
 
         Logger = base.Logger;
 
@@ -68,6 +69,7 @@ public class ModAudio : BaseUnityPlugin
     }
 
     public ConfigEntry<KeyCode> DebugMenuButton { get; }
+    public ConfigEntry<SourceDetectionRate> SourceDetectionRate { get; }
 
     public Dictionary<string, ConfigEntry<bool>> AudioPackEnabled { get; } = [];
     public Dictionary<string, (GameObject Toggle, string DisplayName)> AudioPackEnabledObjects { get; } = [];
@@ -112,6 +114,7 @@ public class ModAudio : BaseUnityPlugin
             {
                 EasySettings.AddHeader(ModInfo.NAME);
                 EasySettings.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
+                EasySettings.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
             });
         }
     }

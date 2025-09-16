@@ -169,7 +169,7 @@ public class ModAudioSource
     public void ClearFlag(AudioFlags flag) => Flags &= ~flag;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool HasFlag(AudioFlags flag) => Flags.HasFlag(flag);
+    public bool HasFlag(AudioFlags flag) => (Flags & flag) == flag; // Do not use Enum.HasFlag, it's a boxing operation and allocates junk
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AssignFlag(AudioFlags flag, bool shouldBeSet)

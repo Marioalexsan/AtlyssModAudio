@@ -2,5 +2,5 @@
 
 [assembly: SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used directly by Unity", Scope = "member", Target = "~M:Marioalexsan.ModAudio.ModAudio.Awake")]
 [assembly: SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used directly by Unity", Scope = "member", Target = "~M:Marioalexsan.ModAudio.ModAudio.Update")]
-[assembly: SuppressMessage("CodeQuality", "IDE0052:Remove unread private members", Justification = "Because I said so", Scope = "member", Target = "~F:Marioalexsan.ModAudio.ModAudio._harmony")]
-[assembly: SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "<Pending>", Scope = "namespaceanddescendants", Target = "~N:Marioalexsan.ModAudio.HarmonyPatches")]
+[assembly: SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Used through reflection", Scope = "namespaceanddescendants", Target = "~N:Marioalexsan.ModAudio.HarmonyPatches")]
+[assembly: SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "Member names on the C# side are also used as member names for the Lua side", Scope = "namespaceanddescendants", Target = "~N:Marioalexsan.ModAudio.Scripting.Proxies")]

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2025-Sep-17
+
+### Deprecated
+- JS scripting is deprecated, and is planned to be removed in the next major release
+  - The reason is severe performance and memory usage issues from Jint even for simple scripts
+  - This will likely be replaced with another scripting tech (possibly MoonSharp / Lua) as soon as I figure out a good alternative
+
+### Changed
+- Added a detection rate setting for playOnAwake sources that allows adjusting its performance impact
+  - It has four options: Realtime (instant), Fast (100ms), Medium (500ms) and Slow(2500ms)
+  - The current default option is Fast (100ms); versions prior to this acted as if they used Realtime (instant)
+  - Slower options reduce CPU load, but may fail to properly replace / overlay playOnAwake sources
+
+### Fixed
+- One shot sources now correctly stop when AudioSource.Stop() is called on the original audio source (either by the game or other mods)
+- Routing now correctly skips over routes that are already present in a chain
+- Fix some performance issues with non-script routing code
+
 ## [3.2.0] - 2025-Aug-30
 
 ### Added

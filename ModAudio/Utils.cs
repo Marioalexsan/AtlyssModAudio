@@ -30,13 +30,10 @@ internal static class Utils
 
     public static void CachedForeach<T>(ICollection<T> enumerable, CachedForeachAction<T> action)
     {
-        var cache = ArrayPool<T>.Shared.Rent(enumerable.Count);
-        var cacheSize = 0;
+        var cacheSize = enumerable.Count;
+        var cache = ArrayPool<T>.Shared.Rent(cacheSize);
 
-        foreach (var value in enumerable)
-        {
-            cache[cacheSize++] = value;
-        }
+        enumerable.CopyTo(cache, 0);
 
         for (int i = 0; i < cacheSize; i++)
         {
@@ -50,13 +47,10 @@ internal static class Utils
 
     public static void CachedForeach<T, V>(ICollection<T> enumerable, in V context, CachedForeachAction<T, V> action)
     {
-        var cache = ArrayPool<T>.Shared.Rent(enumerable.Count);
-        var cacheSize = 0;
+        var cacheSize = enumerable.Count;
+        var cache = ArrayPool<T>.Shared.Rent(cacheSize);
 
-        foreach (var value in enumerable)
-        {
-            cache[cacheSize++] = value;
-        }
+        enumerable.CopyTo(cache, 0);
 
         for (int i = 0; i < cacheSize; i++)
         {

@@ -12,11 +12,19 @@ using UnityEngine.Audio;
 
 namespace Marioalexsan.ModAudio;
 
+public enum SourceDetectionRate
+{
+    Realtime,
+    Fast,
+    Medium,
+    Slow,
+}
+
 internal static class AudioEngine
 {
     private static readonly ProfilerMarker _routing = new ProfilerMarker("ModAudio Route()");
     private static readonly ProfilerMarker _playRouting = new ProfilerMarker("ModAudio Route() from AudioPlayed()");
-    private static readonly ProfilerMarker _fetchSources = new ProfilerMarker("ModAudio Update() fetch active sources");
+    private static readonly ProfilerMarker _detectNewSources = new ProfilerMarker("ModAudio Update() fetch active sources");
     private static readonly ProfilerMarker _innerLoop = new ProfilerMarker("ModAudio Update() inner loop");
     private static readonly ProfilerMarker _executeUpdate = new ProfilerMarker("ModAudio Update() execute script updates");
     private static readonly ProfilerMarker _executeTargetGroups = new ProfilerMarker("ModAudio Update() execute script target groups");
@@ -41,12 +49,13 @@ internal static class AudioEngine
     public static readonly HashSet<ModAudioSource> TrackedOneShots = [];
 
     public static List<AudioPack> AudioPacks { get; } = [];
-    public static IEnumerable<AudioPack> EnabledPacks => AudioPacks.Where(x => x.HasFlag(PackFlags.Enabled));
 
     public static Dictionary<string, AudioClip> LoadedVanillaClips = [];
     public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
 
     public static AudioPack? CurrentlyCalledScriptPack { get; internal set; }
+
+    private static DateTime LastSourceFetch = DateTime.Now;
 
     // Temporary data for routing
     private static readonly Dictionary<Route, TargetGroupRouteAPI> CachedRoutingTargetGroupData = [];
@@ -214,9 +223,13 @@ internal static class AudioEngine
         try
         {
             // Run update scripts first
-
-            foreach (var pack in EnabledPacks)
+            for (int i = 0; i < AudioPacks.Count; i++)
             {
+                var pack = AudioPacks[i];
+
+                if (!pack.HasFlag(PackFlags.Enabled))
+                    continue;
+
                 if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update))
                 {
                     _executeUpdate.Begin();
@@ -225,10 +238,7 @@ internal static class AudioEngine
                 }
             }
 
-            // Check play on awake activeSources
-
-            // This is to detect playOnAwake audio activeSources that have been played
-            // directly by the engine and not via the script API
+            DetectNewSources();
 
             _innerLoop.Begin();
 
@@ -241,18 +251,18 @@ internal static class AudioEngine
                 }
             );
 
-            _fetchSources.Begin();
-            var activeSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-            _fetchSources.End();
+            Utils.CachedForeach(
+                TrackedSources,
+                static (in KeyValuePair<AudioSource, ModAudioSource> pair) =>
+                {
+                    var audio = pair.Key;
 
-            foreach (var audio in activeSources)
-            {
-                if (!audio.playOnAwake)
-                    continue;
+                    if (audio.IsNullOrDestroyed() || !audio.playOnAwake)
+                        return;
 
-                if (!TrackedPlayOnAwakeSources.Contains(audio) && audio.isActiveAndEnabled && audio.isPlaying)
-                    AudioPlayed(audio);
-            }
+                    if (!TrackedPlayOnAwakeSources.Contains(audio) && audio.isActiveAndEnabled && audio.isPlaying)
+                        AudioPlayed(audio);
+                });
 
             _innerLoop.End();
 
@@ -269,6 +279,34 @@ internal static class AudioEngine
             Logging.LogError($"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
             Logging.LogError(e.ToString());
         }
+    }
+
+    private static void DetectNewSources()
+    {
+        // Note: This is mainly to detect playOnAwake audio sources that have been played directly by the engine and not via the script API
+        // It's not really possible to detect them otherwise; you don't get any notifications via hooks for those.
+        // Note that audio that's played via Play() and PlayOneShot() is automatically tracked when played, so this doesn't affect those sources
+
+        var detectionSpeed = ModAudio.Plugin.SourceDetectionRate.Value switch
+        {
+            SourceDetectionRate.Realtime => TimeSpan.Zero,
+            SourceDetectionRate.Fast => TimeSpan.FromMilliseconds(100),
+            SourceDetectionRate.Medium => TimeSpan.FromMilliseconds(500),
+            SourceDetectionRate.Slow or _ => TimeSpan.FromMilliseconds(2500),
+        };
+
+        if (DateTime.Now - LastSourceFetch < detectionSpeed)
+            return;
+
+        LastSourceFetch = DateTime.Now;
+
+        _detectNewSources.Begin();
+        var activeSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+        for (int i = 0; i < activeSources.Length; i++)
+            _ = GetOrCreateModAudioSource(activeSources[i]);
+
+        _detectNewSources.End();
     }
 
     private static void UpdateDynamicTargeting()
@@ -485,7 +523,7 @@ internal static class AudioEngine
         oneShotSource.loop = false; // Otherwise this won't play one-shot
 
         var createdState = GetOrCreateModAudioSource(oneShotSource);
-        createdState.SetFlag(AudioFlags.IsDedicatedOneShotSource);
+        createdState.SetFlag(AudioFlags.IsDedicatedOneShotSource | AudioFlags.OneShotStopsIfSourceStops);
         createdState.OneShotOrigin = state.Audio;
 
         TrackedOneShots.Add(createdState); // Also track these separately for performance reasons
@@ -739,10 +777,10 @@ internal static class AudioEngine
 
         int currentChainRoutes = 0;
 
-        var previousRoutes = source.RouteCount > 0 ? new Route[source.RouteCount] : [];
+        var previousSteps = source.RouteCount > 0 ? new RouteStep[source.RouteCount] : [];
 
         for (int i = 0; i < source.RouteCount; i++)
-            previousRoutes[i] = source.GetRoute(i).Route;
+            previousSteps[i] = source.GetRoute(i);
 
         source.RevertSource();
 
@@ -750,11 +788,11 @@ internal static class AudioEngine
 
         while (currentChainRoutes++ < MaxChainRoutes)
         {
-            var preferredRoute = currentChainRoutes <= previousRoutes.Length ? previousRoutes[currentChainRoutes - 1] : null;
+            RouteStep? preferredStep = reuseOldRoutesIfPossible && currentChainRoutes <= previousSteps.Length ? previousSteps[currentChainRoutes - 1] : null;
 
             var stateBeforeRouting = source.AppliedState;
 
-            if (!ExecuteRouteStep(source, preferredRoute))
+            if (!ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null))
                 break;
 
             var routeData = source.GetRoute(currentChainRoutes - 1);
@@ -842,10 +880,19 @@ internal static class AudioEngine
 
         List<(AudioPack Pack, Route Route)> overlays = [];
 
-        foreach (var pack in EnabledPacks)
+        for (int i = 0; i < AudioPacks.Count; i++)
         {
-            foreach (var route in pack.Config.Routes)
+            var pack = AudioPacks[i];
+
+            if (!pack.HasFlag(PackFlags.Enabled))
+                continue;
+
+            var routes = pack.Config.Routes;
+
+            for (int k = 0; k < routes.Count; k++)
             {
+                var route = routes[k];
+
                 if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
                     continue;
 
@@ -859,41 +906,75 @@ internal static class AudioEngine
             }
         }
 
-        foreach (var (Pack, Route) in overlays)
+        for (int i = 0; i < overlays.Count; i++)
         {
-            PlayOverlay(source, Pack, Route);
+            var (pack, route) = overlays[i];
+
+            PlayOverlay(source, pack, route);
         }
     }
 
-    private static bool ExecuteRouteStep(ModAudioSource source, Route? preferredRoute)
+    private static bool ExecuteRouteStep(ModAudioSource source, (AudioPack Pack, Route Route)? preferredPackRoute)
     {
         ContextAPI.UpdateGameState();
 
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false;
 
-        // Get a replacement from routes
 
+        static void AddReplacementIfEligible(ModAudioSource source, AudioPack pack, Route route, List<(AudioPack Pack, Route Route)> replacements)
+        {
+            if (!MatchesSource(source.AppliedState, route))
+                return;
+
+            bool isAlreadyPresentInChain = false;
+
+            // Disallow selecting routes that are already present in the chain
+            for (int i = 0; i < source.RouteCount; i++)
+            {
+                if (source.GetRoute(i).Route == route)
+                {
+                    isAlreadyPresentInChain = true;
+                    break;
+                }
+            }
+
+            if (isAlreadyPresentInChain)
+                return;
+
+            var thisRouteApi = GetCachedTargetGroup(source, pack, route);
+
+            if (!thisRouteApi.SkipRoute)
+                replacements.Add((pack, route));
+        }
+
+        // Get a replacement from routes
         var replacements = new List<(AudioPack Pack, Route Route)>();
 
-        foreach (var pack in EnabledPacks)
+        if (preferredPackRoute != null)
+            AddReplacementIfEligible(source, preferredPackRoute.Value.Pack, preferredPackRoute.Value.Route, replacements);
+
+        // Check replacements if there is no preferred route - or if it was skipped for some reason
+        if (replacements.Count == 0)
         {
-            foreach (var route in pack.Config.Routes)
+            for (int i = 0; i < AudioPacks.Count; i++)
             {
-                if (!MatchesSource(source.AppliedState, route))
+                var pack = AudioPacks[i];
+
+                if (!pack.HasFlag(PackFlags.Enabled))
                     continue;
 
-                // Disallow selecting routes that are already present in the chain
-                for (int i = 0; i < source.RouteCount; i++)
+                var routes = pack.Config.Routes;
+
+                for (int k = 0; k < routes.Count; k++)
                 {
-                    if (source.GetRoute(i).Route == route)
-                        continue;
+                    var route = routes[k];
+
+                    if (preferredPackRoute != null && route == preferredPackRoute.Value.Route)
+                        continue; // Checked earlier
+
+                    AddReplacementIfEligible(source, pack, route, replacements);
                 }
-
-                var thisRouteApi = GetCachedTargetGroup(source, pack, route);
-
-                if (!thisRouteApi.SkipRoute)
-                    replacements.Add((pack, route));
             }
         }
 
