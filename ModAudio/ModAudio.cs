@@ -1,17 +1,21 @@
 ﻿using BepInEx;
+using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using Marioalexsan.ModAudio.SoftDependencies;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Marioalexsan.ModAudio;
 
 [BepInPlugin(ModInfo.GUID, ModInfo.NAME, ModInfo.VERSION)]
 [BepInDependency(EasySettings.ModID, BepInDependency.DependencyFlags.SoftDependency)]
-[BepInDependency("Marioalexsan.AtlyssJint", BepInDependency.DependencyFlags.HardDependency)]
+[BepInDependency("Marioalexsan.AtlyssLua", BepInDependency.DependencyFlags.HardDependency)]
 public class ModAudio : BaseUnityPlugin
 {
+    internal const string HomebreweryGUID = "Homebrewery";
+
     public static ModAudio Plugin => _plugin ?? throw new InvalidOperationException($"{nameof(ModAudio)} hasn't been initialized yet. Either wait until initialization, or check via ChainLoader instead.");
     private static ModAudio? _plugin;
 
@@ -25,8 +29,13 @@ public class ModAudio : BaseUnityPlugin
 
     private bool _firstTimeUpdate = true;
 
+    public bool Knuckles { get; internal set; } = false;
+
     public string ModAudioConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
     public string ModAudioPluginFolder => Path.GetDirectoryName(Info.Location);
+    public string ModAudioAssetsFolder => Path.Combine(ModAudioPluginFolder, "Assets");
+
+    public bool CurrentlyEnabled { get; private set; } = false;
 
     private AudioDebugDisplay? _display;
 
@@ -34,11 +43,14 @@ public class ModAudio : BaseUnityPlugin
     {
         _plugin = this;
 
+        ModAudioEnabled = Config.Bind("General", nameof(ModAudioEnabled), true, "Whenever ModAudio is enabled or not. Disabling this will unload audio packs and undo any changes to the audio engine.");
         DebugMenuButton = Config.Bind("General", nameof(DebugMenuButton), KeyCode.None, "Button to use for toggling on/off the debug menu for ModAudio. This menu contains various logs for the mod, and can be useful for debugging audio packs, clips and other issues.");
         SourceDetectionRate = Config.Bind("Engine", nameof(SourceDetectionRate), Marioalexsan.ModAudio.SourceDetectionRate.Fast, "How fast to detect new audio sources. Slower detection is less resource demanding, but can sometimes fail to detect playOnAwake audio sources. Realtime will make it frame accurate, but will cause a significant impact on FPS.");
+        EasterEggsEnabled = Config.Bind("Misc", nameof(EasterEggsEnabled), true, "Huh?");
 
         Logger = base.Logger;
 
+        CurrentlyEnabled = ModAudioEnabled.Value;
         _harmony = new Harmony(ModInfo.GUID);
     }
 
@@ -68,6 +80,8 @@ public class ModAudio : BaseUnityPlugin
         InitializeConfiguration();
     }
 
+    public ConfigEntry<bool> ModAudioEnabled { get; }
+    public ConfigEntry<bool> EasterEggsEnabled { get; }
     public ConfigEntry<KeyCode> DebugMenuButton { get; }
     public ConfigEntry<SourceDetectionRate> SourceDetectionRate { get; }
 
@@ -86,13 +100,24 @@ public class ModAudio : BaseUnityPlugin
                 {
                     Config.Save();
 
+                    bool hardReloadRequired = false;
                     bool softReloadRequired = false;
+
+                    // If ModAudio was just disabled or enabled, we should do a hard reload to cleanup any leftover packs
+                    if (CurrentlyEnabled != ModAudioEnabled.Value)
+                    {
+                        CurrentlyEnabled = ModAudioEnabled.Value;
+                        hardReloadRequired = true;
+                    }
 
                     foreach (var pack in AudioEngine.AudioPacks)
                     {
                         var enabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
 
-                        if (enabled != pack.HasFlag(PackFlags.Enabled))
+                        if (!CurrentlyEnabled)
+                            enabled = false;
+
+                        if (enabled != pack.HasFlag(PackFlags.Enabled) && !pack.HasFlag(PackFlags.RemoveConfigEntry))
                         {
                             Logger.LogInfo($"Pack {pack.Config.Id} is now {(enabled ? "enabled" : "disabled")}");
                             softReloadRequired = true;
@@ -101,8 +126,14 @@ public class ModAudio : BaseUnityPlugin
                         pack.AssignFlag(PackFlags.Enabled, enabled);
                     }
 
-                    if (softReloadRequired)
+                    if (hardReloadRequired)
+                    {
+                        AudioEngine.HardReload();
+                    }
+                    else if (softReloadRequired)
+                    {
                         AudioEngine.SoftReload();
+                    }
                 }
                 catch (Exception e)
                 {
@@ -113,6 +144,7 @@ public class ModAudio : BaseUnityPlugin
             EasySettings.OnInitialized.AddListener(() =>
             {
                 EasySettings.AddHeader(ModInfo.NAME);
+                EasySettings.AddToggle("Enable ModAudio", ModAudioEnabled);
                 EasySettings.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
                 EasySettings.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
             });
@@ -129,14 +161,18 @@ public class ModAudio : BaseUnityPlugin
                 SetupBaseAudioPack();
                 Application.OpenURL(new Uri($"{ModAudioConfigFolder}").AbsoluteUri);
             });
-            AudioPackEnabledRoot = EasySettings.AddButton(Texts.ReloadTitle, () => _firstTimeUpdate = true);
+            EasySettings.AddButton(Texts.HardReloadTitle, () => _firstTimeUpdate = true);
+            AudioPackEnabledRoot = EasySettings.AddButton(Texts.ReloadScripts, AudioEngine.SoftReloadScripts);
         }
 
         foreach (var pack in AudioEngine.AudioPacks)
         {
+            if (pack.HasFlag(PackFlags.RemoveConfigEntry))
+                continue; // Not configurable
+
             if (!AudioPackEnabled.TryGetValue(pack.Config.Id, out var existingEntry))
             {
-                var enabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, true, Texts.EnablePackDescription(pack.Config.DisplayName));
+                var enabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, pack.Config.EnabledByDefault, Texts.EnablePackDescription(pack.Config.DisplayName));
 
                 AudioPackEnabled[pack.Config.Id] = enabled;
 
@@ -176,9 +212,11 @@ public class ModAudio : BaseUnityPlugin
     {
         try
         {
+
             if (_firstTimeUpdate)
             {
                 _firstTimeUpdate = false;
+
                 AudioEngine.HardReload();
             }
 

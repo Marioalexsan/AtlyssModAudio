@@ -19,7 +19,10 @@
         <!-- Thunderstore dependency strings -->
         <ThunderstoreDependency Include="BepInEx-BepInExPack-5.4.2100" Visible="false" />
         <ThunderstoreDependency Include="Nessie-EasySettings-1.1.8" Visible="false" />
-        <ThunderstoreDependency Include="Marioalexsan-AtlyssJint-0.1.1" Visible="false" />
+        <ThunderstoreDependency Include="Marioalexsan-AtlyssLua-0.1.0" Visible="false" />
+        
+        <!-- You were good son, real good, maybe even the best -->
+        <!--<ThunderstoreDependency Include="Marioalexsan-AtlyssJint-0.1.1" Visible="false" />-->
         
         <!-- Output items to include from build assemblies -->
         <ThunderstoreAssemblyInclude Include="$(AssemblyName).dll" Visible="false" />
@@ -29,5 +32,9 @@
         <ThunderstoreAssemblyInclude Include="NVorbis.dll" Visible="false" />
         <ThunderstoreAssemblyInclude Include="System.Memory.dll" Visible="false" />
         <ThunderstoreAssemblyInclude Include="System.Runtime.CompilerServices.Unsafe.dll" Visible="false" />
+        
+        <!-- Hacky, but will do for now - assets -->
+        <ThunderstoreAssemblyInclude Include="Assets/knuckles.ogg" Visible="false" />
+        <ThunderstoreAssemblyInclude Include="Assets/LICENSE-ASSETS.txt" Visible="false" />
     </ItemGroup>
 </Project>

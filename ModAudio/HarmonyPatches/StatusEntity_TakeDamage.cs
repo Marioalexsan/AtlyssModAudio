@@ -1,5 +1,6 @@
 ﻿using HarmonyLib;
 using Marioalexsan.ModAudio.Scripting;
+using Marioalexsan.ModAudio.Scripting.Data;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -33,13 +34,19 @@ static class StatusEntity_TakeDamage
 
         if (mainPlayerDealtPvpDamage || mainPlayerTookPvpDamage)
         {
-            ContextAPI.MainPlayerLastPvpEventAt = Time.realtimeSinceStartupAsDouble;
+            ContextData.MainPlayerLastPvpEventAt = Time.realtimeSinceStartupAsDouble;
 
             if (mainPlayerTookPvpDamage)
-                ContextAPI.LastPlayerPvp = _dmgStruct._statusEntity?._isPlayer;
+            {
+                var player = _dmgStruct._statusEntity?._isPlayer;
+                ContextData.LastPlayerPvp = player;
+            }
 
-            if (mainPlayerDealtPvpDamage)
-                ContextAPI.LastPlayerPvp = __instance._isPlayer;
+            else if (mainPlayerDealtPvpDamage)
+            {
+                var player = __instance._isPlayer;
+                ContextData.LastPlayerPvp = player;
+            }
         }
     }
 }

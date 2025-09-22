@@ -23,6 +23,7 @@ public class AudioDebugDisplay : MonoBehaviour
         public DebugMessageCategories Category;
         public string Message;
         public string Tags; // Comma-separated by convention
+        public float ExtraParam1; // Custom data
         public bool ShouldDisplayCached; // Cached information about whenever this should render during this frame
     }
 
@@ -50,14 +51,15 @@ public class AudioDebugDisplay : MonoBehaviour
         });
     }
 
-    public static void LogAudio(LogLevel level, string message, string tags = "")
+    public static void LogAudio(LogLevel level, string message, string tags = "", float extraParam1 = default)
     {
         _messages.Add(new()
         {
             Level = level,
             Category = DebugMessageCategories.AudioSource,
             Message = message,
-            Tags = tags
+            Tags = tags,
+            ExtraParam1 = extraParam1
         });
     }
 
@@ -76,6 +78,9 @@ public class AudioDebugDisplay : MonoBehaviour
     {
         if (!_enabled)
             return;
+
+        GUI.backgroundColor = new Color(0, 0, 0, 1);
+        GUI.color = new Color(1, 1, 1, 1);
 
         _disabledPackButton ??= new GUIStyle(GUI.skin.button)
         {
@@ -207,7 +212,7 @@ public class AudioDebugDisplay : MonoBehaviour
         GUILayout.Label($"Total active audio sources (Unity): {_totalActiveAudioSources}");
         GUILayout.Label($"Total inactive audio sources (Unity): {_totalInactiveAudioSources}");
         GUILayout.Label($"Total sources tracked by ModAudio: {AudioEngine.TrackedSources.Count}");
-        GUILayout.Label($"Total playOnAwake sources tracked: {AudioEngine.TrackedPlayOnAwakeSources.Count}");
+        GUILayout.Label($"Total playOnAwake sources tracked: {AudioEngine.TrackedPlayOnAwakeSourceStates.Count}");
         GUILayout.Label($"Total one shot sources tracked: {AudioEngine.TrackedOneShots.Count}");
     }
 
@@ -277,7 +282,7 @@ public class AudioDebugDisplay : MonoBehaviour
 
             GUILayout.Space(_rowHeight);
 
-            GUILayout.Label($"Total script methods loaded: {pack.ScriptMethods.Count}");
+            GUILayout.Label($"Lua script loaded: {(pack.Script != null ? "True" : "False")}");
 
             GUILayout.EndScrollView();
         }
@@ -294,6 +299,8 @@ public class AudioDebugDisplay : MonoBehaviour
         _hiddenLogElementsBefore = int.MinValue;
         _hiddenLogElementsAfter = int.MinValue;
 
+        _useDistanceFilterCached = _useDistanceFilter;
+        _distanceFilterCached = _distanceFilter;
         _showAudioPackMessagesCached = _showAudioPackMessages;
         _showAudioSourceMessagesCached = _showAudioSourceMessages;
         _showScriptMessagesCached = _showScriptMessages;
@@ -375,32 +382,42 @@ public class AudioDebugDisplay : MonoBehaviour
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
 
-        GUILayout.BeginHorizontal();
+        if (_showAudioSourceMessagesCached)
+        {
+            GUILayout.BeginHorizontal();
 
-        GUILayout.Label("Filter audio sources by group:");
+            GUILayout.Label("Audio categories:");
 
-        // Note: the groups here have to match with what is added to the tags of logs *exactly*
+            // Note: the groups here have to match with what is added to the tags of logs *exactly*
 
-        if (GUILayout.Toggle(_audioGroupFilter.Length == 0, "All"))
-            _audioGroupFilter = "";
+            if (GUILayout.Toggle(_audioGroupFilter.Length == 0, "All"))
+                _audioGroupFilter = "";
 
-        if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp ambience"), "Ambience"))
-            _audioGroupFilter = "AudGrp ambience";
+            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp ambience"), "Ambience"))
+                _audioGroupFilter = "AudGrp ambience";
 
-        if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp game"), "Game"))
-            _audioGroupFilter = "AudGrp game";
+            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp game"), "Game"))
+                _audioGroupFilter = "AudGrp game";
 
-        if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp gui"), "GUI"))
-            _audioGroupFilter = "AudGrp gui";
+            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp gui"), "GUI"))
+                _audioGroupFilter = "AudGrp gui";
 
-        if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp music"), "Music"))
-            _audioGroupFilter = "AudGrp music";
+            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp music"), "Music"))
+                _audioGroupFilter = "AudGrp music";
 
-        if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp voice"), "Voice"))
-            _audioGroupFilter = "AudGrp voice";
+            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp voice"), "Voice"))
+                _audioGroupFilter = "AudGrp voice";
 
-        GUILayout.FlexibleSpace();
-        GUILayout.EndHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+
+            _useDistanceFilter = GUILayout.Toggle(_useDistanceFilter, $"Filter audio by distance from player ({_distanceFilter:F2})");
+            _distanceFilter = GUILayout.HorizontalSlider(_distanceFilter, 0f, 1000f, GUILayout.MaxWidth(10000));
+
+            GUILayout.EndHorizontal();
+        }
 
         if (GUILayout.Button("Clear messages", GUILayout.ExpandWidth(false)))
             _shouldClearLogs = true;
@@ -485,6 +502,9 @@ public class AudioDebugDisplay : MonoBehaviour
         if (!shouldShowCategory)
             return false;
 
+        if (log.Category == DebugMessageCategories.AudioSource && _useDistanceFilterCached && log.ExtraParam1 >= _distanceFilterCached)
+            return false;
+
         if (log.Category == DebugMessageCategories.AudioSource)
         {
             if (_audioGroupFilterCached != "" && !log.Tags.Contains(_audioGroupFilterCached))
@@ -549,6 +569,12 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _hiddenLogElementsAfter = int.MinValue;
 
     private static bool _enabled = false;
+
+    private static float _distanceFilterCached = 120;
+    private static float _distanceFilter = 120;
+
+    private static bool _useDistanceFilterCached = false;
+    private static bool _useDistanceFilter = false;
 
     private static bool _showAudioPackMessagesCached = true;
     private static bool _showAudioPackMessages = true;

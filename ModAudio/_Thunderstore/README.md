@@ -6,7 +6,7 @@ You can use this mod to make audio pack mods, or to just replace audio on a whim
 
 Currently, `.ogg`, `.mp3` and `.wav` formats are supported, although `.ogg` and `.mp3` are preferred due to reduced file size.
 
-You can also write custom scripting behaviour with embedded JavaScript, allowing you to implement dynamic music (currently an experimental feature).
+You can also write custom scripting behaviour with embedded Lua, allowing you to implement dynamic music (currently an experimental feature).
 
 # How to use
 
@@ -215,16 +215,20 @@ There are multiple options available for logging how audio packs are loaded and 
 
 # How do I use scripts?
 
-It's the same as regular JavaScript, except forget about having libraries or modules of any kind other than what Jint and ModAudio provides by default.
+It's the same as regular Lua code, except forget about having libraries or modules of any kind other than what ModAudio provides by default.
 
-Some of the objects exposed are Jint readonly wrappers for C# objects, so you can expect to be able to do something like `mainPlayer._playerMapInstance._mapName`, similar to how you'd access it in C#.
+Some of the objects exposed are readonly proxies for C# objects, so you can expect to be able to do something like `mainPlayer._playerMapInstance._mapName`, similar to how you'd access it in C#.
 
-You have the following modules available:
+Keep in mind that not all properties are exposed by default in proxies at the moment due to writing said proxies being a bit painful.
 
-- `modaudio` module, which exports a `context` and an `engine` object
-  - `engine` will contain methods that can be used to modify things about the game. Right now it has the following properties:
+If you don't see a field that you need, you can ask me to add it to the next update.
+
+You have the following global variables available:
+
+- `modaudio` with the following properties:
+  - `engine` table will contain methods that can be used to modify things about the game. Right now it has the following properties:
     - `forceCombatMusic(enable: boolean)` - will force the game to play action music for map instances (not dungeons)
-  - `context` will contain miscellaneous helper properties; no guarantees are made about the API provided through this object, it can change at any time. Right now it has the following properties:
+  - `context` table will contain miscellaneous helper properties; no guarantees are made about the API provided through this object, it can change at any time. Right now it has the following properties:
     - `mapName` - the current map's name
     - `mapSubregion` - the current subregion within the map (for example `Tuul Enclave`), if applicable
     - `aggroedEnemies` - a list of `Creep` instances that are currently focused on attacking the main player
@@ -233,7 +237,7 @@ You have the following modules available:
     - `mainPlayerLastPvpEventAt` - seconds since the last time the main player hit or got hit by some other player
     - `lastPlayerPvp` - a Player instance representing the last player that the main player hit or got hit by; this can be null or stale, so use in conjunction with `mainPlayerLastPvpEventAt`
 
-- `atlyss` module, which exports Jint readonly wrappers for some game objects through the following properties:
+- `atlyss` module, which exports readonly proxies for some game objects through the following properties:
   - `mainPlayer` - the main player as a `Player` instance, or null if not present yet
   - `actionBarManager` - the current `ActionBarManager` instance, or null if not present yet
   - `gameWorldManager` - the current `GameWorldManager` instance, or null if not present yet
@@ -241,10 +245,10 @@ You have the following modules available:
   - `mainMenuManager` - the current `MainMenuManager` instance, or null if not present yet
   - `inGameUI` - the current `InGameUI` instance, or null if not present yet
   
-For scripting examples, look on Thunderstore for any audio pack mods that use ModAudio >= 3.0.0 and have a `__routes.js` file.
+For scripting examples, look on Thunderstore for any audio pack mods that use ModAudio >= 4.0.0 and have a `__routes.lua` file.
 
 Things to keep in mind:
-- Scripts for your audio pack will be disabled if any call takes more than `100ms` to execute, or allocates more than `4 MB`, so try to be efficient with your allocations
+- Scripts for your audio pack will be disabled if any call takes more than `100ms` to execute
 - Reloading all audio packs via the `Mods` menu in EasySettings will also reload scripts in addition to audio and configuration, allowing you to tinker with stuff while the game is open
 
 ## Update scripts

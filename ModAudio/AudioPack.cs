@@ -1,4 +1,4 @@
-﻿using Jint.Native.Function;
+﻿using Marioalexsan.ModAudio.Scripting;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
@@ -12,10 +12,12 @@ public enum PackFlags : uint
 
     Enabled = 1 << 0,
     ForceDisableScripts = 1 << 1,
-    HasEncounteredErrors = 1 << 2
+    HasEncounteredErrors = 1 << 2,
+    RemoveConfigEntry = 1 << 3,
+    BuiltinPack = 1 << 4,
 }
 
-public class AudioPack
+public class AudioPack : IDisposable
 {
     public string PackPath { get; set; } = "???";
     public AudioPackConfig Config { get; set; } = new();
@@ -29,7 +31,15 @@ public class AudioPack
     public Dictionary<string, Func<AudioClip>> PendingClipsToLoad { get; } = [];
     public Dictionary<string, Func<AudioClip>> PendingClipsToStream { get; } = [];
 
-    public Dictionary<string, Function> ScriptMethods { get; } = [];
+    public ModAudioScript? Script { get; set; }
+
+    public void Dispose()
+    {
+        foreach (var handle in OpenStreams)
+            handle.Dispose();
+
+        Script?.Dispose();
+    }
 
     public bool IsUserPack()
     {

@@ -15,6 +15,11 @@ public class AudioPackConfig
     public string DisplayName { get; set; } = "";
 
     /// <summary>
+    /// Sets the initial state of this audio pack. If set to false, the audio pack will be disabled on first game launch.
+    /// </summary>
+    public bool EnabledByDefault { get; set; } = true;
+
+    /// <summary>
     /// A user-readable display name for your audio pack. Used in the UI.
     /// </summary>
     public PackScripts PackScripts { get; set; } = new();
@@ -59,6 +64,7 @@ public class AudioPackConfig
             Routes = routeConfig.Routes,
             Id = routeConfig.Id,
             DisplayName = routeConfig.DisplayName,
+            EnabledByDefault = routeConfig.EnabledByDefault,
             PackScripts =
             {
                 Update = routeConfig.UpdateScript

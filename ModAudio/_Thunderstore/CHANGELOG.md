@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2025-Sep-22 - "Don't talk to me about scripting"
+
+### Removed
+- JS scripting and Jint have been fully removed
+  - Existing packs with JS scripts will need to be converted to use Lua instead
+
+### Added
+
+- Added Lua scripting using a fork for Lua-CSharp (https://github.com/Marioalexsan/Lua-CSharp-Atlyss)
+  - Scripts are loaded from `__routes.lua`, similar to how the previous implementation worked with `__routes.js`
+  - The API syntax is similar; small differences include modules being available as globals rather than module imports
+  - Proxies for game objects (Player, PlayerCombat) are currently more limited due to requiring being written by hand, this will be fixed in future updates
+- Added an option to have an audio pack start in a disabled state
+  - can be set with `%enabledbydefault false` in `__routes.txt`
+  - audio packs with this setting will be disabled when booting the game for the first time
+  - users that enable the pack afterwards will still have it start enabled on subsequent boots
+  - mainly to be used for combined mods (Homebrewery + ModAudio, etc.) that wish to be less intrusive with their audio components
+- Added an option to disable ModAudio completely
+  - This acts as if all audio packs are disabled, and ModAudio will also skip any audio engine changes, making it act as vanilla
+- &amp; BugAudio
+- Added an option to reload audio scripts from EasySettings
+  - This allows prototyping and reloading scripts from disk without having to also reload the audio data 
+
+### Changed
+- Somewhat improved performance of scripting (mostly thanks to the scripting backend change)
+- Somewhat improved general performance of the mod
+
 ## [3.3.0] - 2025-Sep-17
 
 ### Deprecated

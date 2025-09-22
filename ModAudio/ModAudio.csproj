@@ -8,7 +8,7 @@
         <Product>ModAudio</Product>
 
         <!-- Also set as plugin version and Thunderstore package version -->
-        <Version>3.3.0</Version>
+        <Version>4.0.0</Version>
     </PropertyGroup>
 
     <!-- Generic assembly info. -->
@@ -59,6 +59,19 @@
         <PackageReference Include="NVorbis" Version="0.10.5" />
 
         <PackageReference Include="Nessie-EasySettings" Version="1.1.8" Private="False" />
-        <PackageReference Include="Marioalexsan-AtlyssJint" Version="0.1.1" Private="False" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua.SourceGenerator\Lua.SourceGenerator.csproj" OutputItemType="Analyzer" />
+      <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua\Lua.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="Assets\knuckles.ogg">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Assets\LICENSE-ASSETS.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 </Project>

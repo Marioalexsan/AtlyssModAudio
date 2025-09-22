@@ -1,0 +1,4 @@
+Assets from here are not covered by the LGPL3 license of ModAudio, and are instead under their own licenses.
+I don't claim any copyright on these unless explicitly stated.
+
+knuckes.ogg - Unknown From M.E ver.1 - https://www.youtube.com/watch?v=r8sB8N44eBE - SEGA

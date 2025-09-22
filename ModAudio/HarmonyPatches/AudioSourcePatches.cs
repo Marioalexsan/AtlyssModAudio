@@ -1,7 +1,6 @@
 ﻿using HarmonyLib;
 using Unity.Profiling;
 using UnityEngine;
-using UnityEngine.Profiling;
 
 namespace Marioalexsan.ModAudio.HarmonyPatches;
 

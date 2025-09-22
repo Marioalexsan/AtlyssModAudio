@@ -1,8 +1,5 @@
-﻿using Mirror;
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using UnityEngine;
-using UnityEngine.Profiling;
-using UnityEngine.TextCore.Text;
 
 namespace Marioalexsan.ModAudio;
 

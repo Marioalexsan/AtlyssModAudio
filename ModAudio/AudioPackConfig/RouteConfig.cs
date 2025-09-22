@@ -17,6 +17,7 @@ public class RouteConfig
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string UpdateScript { get; set; } = "";
+    public bool EnabledByDefault { get; set; } = true;
 
     // Note: this format is stupid and dumb and I hate it and ugh why
     public static RouteConfig ReadTextFormat(Stream stream)
@@ -28,6 +29,7 @@ public class RouteConfig
         var id = "";
         var displayName = "";
         var updateScript = "";
+        var enabledByDefault = true;
 
         int lineNumber = 0;
 
@@ -287,7 +289,8 @@ public class RouteConfig
             Id = id,
             DisplayName = displayName,
             Routes = routes,
-            UpdateScript = updateScript
+            UpdateScript = updateScript,
+            EnabledByDefault = enabledByDefault
         };
 
         bool SplitRouteParts(string line, out List<string> clipNames, out List<string> replacements, out List<string> overlays, out List<string> effects)
@@ -405,6 +408,14 @@ public class RouteConfig
             else if (line.Trim().StartsWith("%displayname "))
             {
                 displayName = line.Trim()["%displayname ".Length..].Trim();
+            }
+            else if (line.Trim().StartsWith("%enabledbydefault "))
+            {
+                if (!bool.TryParse(line.Trim()["%enabledbydefault ".Length..].Trim(), out enabledByDefault))
+                {
+                    Logging.LogWarning($"Line {lineNumber}: Enable state must be either \"true\" or \"false\".");
+                    enabledByDefault = true;
+                }
             }
             else if (line.Trim().StartsWith("%customclipvolume "))
             {

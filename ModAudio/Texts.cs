@@ -32,7 +32,8 @@ public static class Texts
     public const string LogVoiceTitle = "Log voice audio";
     public const string LogVoiceDescription = "True to log audio that's part of the voice group, false to skip it.";
 
-    public const string ReloadTitle = "Reload audio packs";
+    public const string HardReloadTitle = "Hard reload audio packs";
+    public const string ReloadScripts = "Reload scripts from disk";
 
     public const string OpenCustomAudioPackTitle = "Open custom audio pack folder";
 
@@ -92,4 +93,7 @@ public static class Texts
 
     public static string MissingTargetGroupScript(string targetGroupScript, AudioPack pack)
         => $"Couldn't get target group script {targetGroupScript} for a route in {pack.Config.Id}! Check whenever your script code is correct!";
+
+    public static string MissingUpdateScript(string updateScript, AudioPack pack)
+        => $"Couldn't get update script {updateScript} for a route in {pack.Config.Id}! Check whenever your script code is correct!";
 }

@@ -1,12 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using UnityEngine.UIElements;
-using UnityEngine.XR;
-using static UnityEngine.UIElements.StylePropertyAnimationSystem;
-using static UnityEngine.UIElements.UIR.Allocator2D;
-
-namespace Marioalexsan.ModAudio;
+﻿namespace Marioalexsan.ModAudio;
 
 // Up to date with 82025.a2
 // Documentation credits:

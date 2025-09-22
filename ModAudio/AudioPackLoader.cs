@@ -1,8 +1,6 @@
 ﻿using BepInEx;
 using BepInEx.Logging;
-using Jint;
-using Jint.Native.Function;
-using System.IO;
+using Marioalexsan.ModAudio.Scripting;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -14,7 +12,7 @@ public static class AudioPackLoader
 
     public const float OneMB = 1024f * 1024f;
 
-    public const string RoutesScriptName = "__routes.js";
+    public const string RoutesScriptName = "__routes.lua";
     public const string RoutesConfigName = "__routes.txt";
 
     public const int FileSizeLimitForLoading = 1024 * 1024;
@@ -65,6 +63,59 @@ public static class AudioPackLoader
         return removedRoot;
     }
 
+    private static void LoadBuiltinAudioPacks(List<AudioPack> existingPacks)
+    {
+        if (ModAudio.Plugin.EasterEggsEnabled.Value)
+        {
+            try
+            {
+                var knuckles = AudioClipLoader.StreamFromFile("knuckles", Path.Combine(ModAudio.Plugin.ModAudioAssetsFolder, "knuckles.ogg"), 1f, out var openedStream);
+                AudioPack knucklesPack;
+
+                existingPacks.Add(knucklesPack = new AudioPack()
+                {
+                    Flags = PackFlags.RemoveConfigEntry | PackFlags.BuiltinPack,
+                    Config =
+                    {
+                        DisplayName = "ModAudio Builtin",
+                        Id = "ModAudio_Knuckles",
+                        Routes =
+                        [
+                            new Route()
+                            {
+                                OriginalClips = ["_mu_flyby"],
+                                ReplacementClips = [
+                                    new ReplacementClipSelection()
+                                    {
+                                        Name = "knuckles"
+                                    }
+                                ],
+                                // Virtually guaranteed chance since I don't want to implement audio pack priorities
+                                ReplacementWeight = 1e20f,
+                            }
+                        ]
+                    },
+                    OpenStreams =
+                    {
+                        openedStream
+                    },
+                    ReadyClips =
+                    {
+                        ["knuckles"] = knuckles
+                    }
+                });
+
+                if (ModAudio.Plugin.Knuckles)
+                    knucklesPack.SetFlag(PackFlags.Enabled);
+            }
+            catch (Exception e)
+            {
+                Logging.LogWarning("Couldn't load a builtin clip!");
+                Logging.LogWarning(e);
+            }
+        }
+    }
+
     public static List<AudioPack> LoadAudioPacks()
     {
         List<AudioPack> audioPacks = [];
@@ -72,6 +123,8 @@ public static class AudioPackLoader
             ..Directory.GetDirectories(Paths.ConfigPath),
             ..Directory.GetDirectories(Paths.PluginPath),
         ];
+
+        LoadBuiltinAudioPacks(audioPacks);
 
         foreach (var rootPath in loadPaths)
         {
@@ -87,54 +140,67 @@ public static class AudioPackLoader
         return audioPacks;
     }
 
-    private static void FinalizePack(AudioPack pack)
+    public static void FinalizePack(AudioPack pack)
     {
-        // Validate / normalize / remap stuff
+        pack.Script?.Start();
+
 
         foreach (var route in pack.Config.Routes)
         {
-            var clampedWeight = Mathf.Clamp(route.ReplacementWeight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-            if (clampedWeight != route.ReplacementWeight)
+            // Validate / normalize / remap stuff
+            // ...unless it's a builtin pack, those get to skip validation
+            if (!pack.HasFlag(PackFlags.BuiltinPack))
             {
-                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
-                pack.SetFlag(PackFlags.HasEncounteredErrors);
-            }
+                var clampedWeight = Mathf.Clamp(route.ReplacementWeight, ModAudio.MinWeight, ModAudio.MaxWeight);
 
-            route.ReplacementWeight = clampedWeight;
-
-            foreach (var selection in route.ReplacementClips)
-            {
-                clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-                if (clampedWeight != selection.Weight)
+                if (clampedWeight != route.ReplacementWeight)
                 {
                     AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
                     pack.SetFlag(PackFlags.HasEncounteredErrors);
                 }
 
-                selection.Weight = clampedWeight;
-            }
+                route.ReplacementWeight = clampedWeight;
 
-            foreach (var selection in route.OverlayClips)
-            {
-                clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-                if (clampedWeight != selection.Weight)
+                foreach (var selection in route.ReplacementClips)
                 {
-                    AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
-                    pack.SetFlag(PackFlags.HasEncounteredErrors);
+                    clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
+
+                    if (clampedWeight != selection.Weight)
+                    {
+                        AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
+                        pack.SetFlag(PackFlags.HasEncounteredErrors);
+                    }
+
+                    selection.Weight = clampedWeight;
                 }
 
-                selection.Weight = clampedWeight;
+                foreach (var selection in route.OverlayClips)
+                {
+                    clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
+
+                    if (clampedWeight != selection.Weight)
+                    {
+                        AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
+                        pack.SetFlag(PackFlags.HasEncounteredErrors);
+                    }
+
+                    selection.Weight = clampedWeight;
+                }
             }
 
-            if (!string.IsNullOrEmpty(route.TargetGroupScript) && !pack.ScriptMethods.ContainsKey(route.TargetGroupScript))
+            if (!string.IsNullOrEmpty(route.TargetGroupScript) && (pack.Script == null || !pack.Script.HasExportedMethod(route.TargetGroupScript)))
             {
                 AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
                 route.TargetGroupScript = "";
             }
+        }
+
+        if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update) && (pack.Script == null || !pack.Script.HasExportedMethod(pack.Config.PackScripts.Update)))
+        {
+            AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingUpdateScript(pack.Config.PackScripts.Update, pack));
+            pack.SetFlag(PackFlags.HasEncounteredErrors);
+            pack.Config.PackScripts.Update = "";
         }
     }
 
@@ -223,7 +289,7 @@ public static class AudioPackLoader
         return pack;
     }
 
-    private static void LoadCustomClips(string rootPath, AudioPack pack, bool extensionless)
+    public static void LoadCustomClips(string rootPath, AudioPack pack, bool extensionless)
     {
         foreach (var clipData in pack.Config.CustomClips)
         {
@@ -313,9 +379,8 @@ public static class AudioPackLoader
         }
     }
 
-    private static void LoadScriptData(string path, AudioPack pack)
+    public static void LoadScriptData(string path, AudioPack pack)
     {
-        AudioEngine.CurrentlyCalledScriptPack = pack;
         try
         {
             var scriptPath = Path.Combine(Path.GetDirectoryName(path), RoutesScriptName);
@@ -323,26 +388,17 @@ public static class AudioPackLoader
             if (!File.Exists(scriptPath))
                 return;
 
-            var script = File.ReadAllText(scriptPath);
+            var rootScript = File.ReadAllText(scriptPath);
 
-            AudioEngine.ScriptEngine.Modules.Add(scriptPath, script);
-            var module = AudioEngine.ScriptEngine.Modules.Import(scriptPath);
+            pack.Script = new ModAudioScript(pack, rootScript);
 
-            foreach (var key in module.GetOwnPropertyKeys(Jint.Runtime.Types.String))
-            {
-                if (module[key] is Function function)
-                    pack.ScriptMethods[key.AsString()] = function;
-            }
-
-            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loaded {pack.ScriptMethods.Count} script methods from {ReplaceRootPath(scriptPath)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loaded Lua script from {ReplaceRootPath(scriptPath)}.");
         }
         catch (Exception e)
         {
             AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack scripts for {ReplaceRootPath(path)}.");
             AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
-            pack.ScriptMethods.Clear();
             pack.SetFlag(PackFlags.ForceDisableScripts | PackFlags.HasEncounteredErrors);
         }
-        AudioEngine.CurrentlyCalledScriptPack = null;
     }
 }

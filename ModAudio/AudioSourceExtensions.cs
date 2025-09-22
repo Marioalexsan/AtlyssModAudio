@@ -1,16 +1,10 @@
 ﻿using BepInEx.Logging;
-using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
 
 public static class AudioSourceExtensions
 {
-    public static bool IsNullOrDestroyed(this UnityEngine.Object obj)
-    {
-        return obj == null;
-    }
-
     public static AudioSource CreateCloneOnTarget(this AudioSource source, GameObject targetObject)
     {
         var clone = targetObject.AddComponent<AudioSource>();
@@ -80,14 +74,6 @@ public static class AudioSourceExtensions
 
         messageDisplay += $")";
 
-        float distance = float.MinValue;
-
-        if (Player._mainPlayer)
-            distance = Vector3.Distance(Player._mainPlayer.transform.position, state.Audio.transform.position);
-
-        if (distance != float.MinValue)
-            messageDisplay += $" Dst {distance:F2}";
-
         if (state.HasFlag(AudioFlags.IsOverlay))
             messageDisplay += " overlay";
 
@@ -117,6 +103,14 @@ public static class AudioSourceExtensions
         if (state.HasFlag(AudioFlags.IsOverlay))
             tags += ",Overlay";
 
-        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags);
+        float distance = float.MinValue;
+
+        if (Player._mainPlayer)
+            distance = Vector3.Distance(Player._mainPlayer.transform.position, state.Audio.transform.position);
+
+        if (distance != float.MinValue)
+            messageDisplay += $" Dst {distance:F2}";
+
+        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags, extraParam1: distance);
     }
 }

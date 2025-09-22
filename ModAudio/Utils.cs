@@ -3,6 +3,40 @@ using System.Runtime.CompilerServices;
 
 namespace Marioalexsan.ModAudio;
 
+internal static class ForeachCache<T>
+{
+    public const int InitialCapacity = 1024;
+
+    private static T[] _cache = new T[InitialCapacity];
+    public static int CacheSize { get; private set; } = 0;
+
+    public static Span<T> CacheFrom(ICollection<T> collection)
+    {
+        int inputElements = collection.Count;
+
+        if (_cache.Length < inputElements)
+        {
+            // Throw out previous array
+            _cache = new T[collection.Count * 2];
+
+            collection.CopyTo(_cache, 0);
+            CacheSize = inputElements;
+        }
+        else
+        {
+            collection.CopyTo(_cache, 0);
+
+            // Clear out previous values that didn't get replaced
+            for (int i = inputElements; i < CacheSize; i++)
+                _cache[i] = default!;
+
+            CacheSize = inputElements;
+        }
+
+        return new Span<T>(_cache, 0, CacheSize);
+    }
+}
+
 // TODO: Investigate Burst with hand-written intrinsics
 internal static class Utils
 {
