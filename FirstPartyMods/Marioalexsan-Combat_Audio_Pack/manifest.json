@@ -1,9 +1,9 @@
 {
   "name": "Combat_Audio_Pack",
   "description": "ModAudio pack that adds combat music to most maps.",
-  "version_number": "1.0.0",
+  "version_number": "1.1.0",
   "dependencies": [
-    "Marioalexsan-ModAudio-3.0.0"
+    "Marioalexsan-ModAudio-4.0.0"
   ],
   "website_url": "https://github.com/Marioalexsan/AtlyssModAudio"
 }
