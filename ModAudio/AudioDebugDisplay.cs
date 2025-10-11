@@ -25,6 +25,7 @@ public class AudioDebugDisplay : MonoBehaviour
         public string Tags; // Comma-separated by convention
         public float ExtraParam1; // Custom data
         public bool ShouldDisplayCached; // Cached information about whenever this should render during this frame
+        public bool FilterChecked; // Whenever the filter has been applied to this already
     }
 
     private static readonly List<MessageLog> _messages = new List<MessageLog>(16384);
@@ -159,6 +160,8 @@ public class AudioDebugDisplay : MonoBehaviour
 
     public void Update()
     {
+        _updateLogsMarker.Begin();
+
         if (ModAudio.Plugin.DebugMenuButton.Value != KeyCode.None)
         {
             if (Input.GetKeyDown(ModAudio.Plugin.DebugMenuButton.Value))
@@ -171,17 +174,20 @@ public class AudioDebugDisplay : MonoBehaviour
             LogEngine(LogLevel.Warning, $"There are more than 10000 messages in the log! Removing oldest 5000 messages to reclaim memory.");
         }
 
-        if (!_enabled)
-            return; // No need to waste CPU cycles if we won't render this information
+        // No need to waste CPU cycles if we won't render this information
+        if (_enabled)
+        {
+            if (_selectedTab == 0)
+                UpdateAudioLogs();
 
-        if (_selectedTab == 0)
-            UpdateAudioLogs();
+            else if (_selectedTab == 1)
+                UpdateAudioPacks();
 
-        else if (_selectedTab == 1)
-            UpdateAudioPacks();
+            else if (_selectedTab == 2)
+                UpdateAudioSources();
+        }
 
-        else if (_selectedTab == 2)
-            UpdateAudioSources();
+        _updateLogsMarker.End();
     }
 
     private void UpdateAudioSources()
@@ -290,6 +296,15 @@ public class AudioDebugDisplay : MonoBehaviour
         GUILayout.EndHorizontal();
     }
 
+    private static void UpdateCachedValue<T>(ref T cache, T value, ref bool changed)
+    {
+        if (!Equals(cache, value))
+        {
+            cache = value;
+            changed = true;
+        }
+    }
+
     private void UpdateAudioLogs()
     {
         // This is to make sure we render the same number of log elements within a frame
@@ -299,16 +314,19 @@ public class AudioDebugDisplay : MonoBehaviour
         _hiddenLogElementsBefore = int.MinValue;
         _hiddenLogElementsAfter = int.MinValue;
 
-        _useDistanceFilterCached = _useDistanceFilter;
-        _distanceFilterCached = _distanceFilter;
-        _showAudioPackMessagesCached = _showAudioPackMessages;
-        _showAudioSourceMessagesCached = _showAudioSourceMessages;
-        _showScriptMessagesCached = _showScriptMessages;
-        _showEngineMessagesCached = _showEngineMessages;
-        _latestMessagesOnlyCached = _latestMessagesOnly;
-        _showErrorAndWarnsOnlyCached = _showErrorAndWarnsOnly;
-        _audioGroupFilterCached = _audioGroupFilter;
-        _filterModdedAudioCached = _filterModdedAudio;
+        bool filtersChanged = false;
+
+        UpdateCachedValue(ref _useDistanceFilterCached, _useDistanceFilter, ref filtersChanged);
+        UpdateCachedValue(ref _distanceFilterCached, _distanceFilter, ref filtersChanged);
+        UpdateCachedValue(ref _showAudioPackMessagesCached, _showAudioPackMessages, ref filtersChanged);
+        UpdateCachedValue(ref _showAudioSourceMessagesCached, _showAudioSourceMessages, ref filtersChanged);
+        UpdateCachedValue(ref _showScriptMessagesCached, _showScriptMessages, ref filtersChanged);
+        UpdateCachedValue(ref _showEngineMessagesCached, _showEngineMessages, ref filtersChanged);
+        UpdateCachedValue(ref _latestMessagesOnlyCached, _latestMessagesOnly, ref filtersChanged);
+        UpdateCachedValue(ref _showErrorAndWarnsOnlyCached, _showErrorAndWarnsOnly, ref filtersChanged);
+        UpdateCachedValue(ref _audioGroupFilterCached, _audioGroupFilter, ref filtersChanged);
+        UpdateCachedValue(ref _filterModdedAudioCached, _filterModdedAudio, ref filtersChanged);
+        UpdateCachedValue(ref _logIncludeFilterCached, _logIncludeFilter, ref filtersChanged);
 
         if (_shouldClearLogs)
         {
@@ -328,8 +346,17 @@ public class AudioDebugDisplay : MonoBehaviour
         {
             var message = _messages[i];
 
-            bool shouldDisplay = ShouldDisplayLog(message);
-            _messages[i] = _messages[i] with { ShouldDisplayCached = shouldDisplay };
+            bool shouldDisplay;
+
+            if (filtersChanged || !_messages[i].FilterChecked)
+            {
+                shouldDisplay = ShouldDisplayLog(message);
+                _messages[i] = _messages[i] with { ShouldDisplayCached = shouldDisplay, FilterChecked = true };
+            }
+            else
+            {
+                shouldDisplay = _messages[i].ShouldDisplayCached;
+            }
 
             _totalMessages++;
 
@@ -378,8 +405,14 @@ public class AudioDebugDisplay : MonoBehaviour
         _showScriptMessages = GUILayout.Toggle(_showScriptMessages, "Scripts");
         _showEngineMessages = GUILayout.Toggle(_showEngineMessages, "Engine");
 
-
         GUILayout.FlexibleSpace();
+        GUILayout.EndHorizontal();
+
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Search for text:", GUILayout.ExpandWidth(false));
+        _logIncludeFilter = GUILayout.TextField(_logIncludeFilter, 80, GUILayout.ExpandWidth(true));
+
         GUILayout.EndHorizontal();
 
         if (_showAudioSourceMessagesCached)
@@ -514,6 +547,9 @@ public class AudioDebugDisplay : MonoBehaviour
                 return false;
         }
 
+        if (_logIncludeFilterCached != "" && !log.Message.Contains(_logIncludeFilterCached, StringComparison.InvariantCultureIgnoreCase))
+            return false;
+
         return true;
     }
 
@@ -600,6 +636,9 @@ public class AudioDebugDisplay : MonoBehaviour
     private static string _audioGroupFilterCached = "";
     private static string _audioGroupFilter = "";
 
+    private static string _logIncludeFilter = "";
+    private static string _logIncludeFilterCached = "";
+
     private static bool _shouldClearLogs = false;
 
     private static int _totalErrors = 0;
@@ -610,7 +649,8 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _totalDisplayedWarnings = 0;
     private static int _totalDisplayedMessages = 0;
 
-    private static readonly ProfilerMarker _renderLogsMarker = new ProfilerMarker("ModAudio debug menu logs");
+    private static readonly ProfilerMarker _updateLogsMarker = new ProfilerMarker("ModAudio debug menu update");
+    private static readonly ProfilerMarker _renderLogsMarker = new ProfilerMarker("ModAudio debug menu render");
 
     private static int _totalActiveAudioSources;
     private static int _totalInactiveAudioSources;

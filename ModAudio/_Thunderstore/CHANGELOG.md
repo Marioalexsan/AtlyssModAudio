@@ -5,7 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.0.0] - 2025-Sep-22 - "Don't talk to me about scripting"
+## [4.1.0] - 2025-Oct-09
+
+### Added
+- Populated more fields on some of the existing Lua proxies, allowing scripts to properly get those values
+- Added new properties for the `route` parameter in target route methods that can be used to get details about the current audio source:
+  - `originalClipName` - original clip name, string, readonly
+  - `clipName` - current clip name, string, readonly
+  - `gameObjectName` - the name of the game object on which the audio is playing, string, readonly
+  - `hasGameObjectInHierarchy(name: string)` - returns a boolean indicating whenever the object with the given name is present in the hierarchy
+    - this must be called using the `:` Lua syntax, like `route:hasGameObjectInHierarchy('_AUDIO')` 
+    - this function can be expensive, so cache the result in a local variable
+  - `getGameObjectHierarchy()` - returns an array of strings that contains the game object hierarchy of this audio source
+    - this must be called using the `:` Lua syntax, like `local gameObjects = route:getGameObjectHierarchy()`
+    - this function can be expensive, so cache the result in a local variable
+- Audio debug menu logs now support searching via text for specific entries
+
+### Changed
+- EasterEggsEnabled (an undocumented configuration option for easter eggs) has been added as an option in EasySettings for easier access
+
+### Fixed
+- Fixed an issue where fixing scripts that have missing methods and soft reloading them wouldn't reapply the methods to the current pack
+
+## [4.0.0] - 2025-OCt-06 - "Don't talk to me about scripting"
 
 ### Removed
 - JS scripting and Jint have been fully removed

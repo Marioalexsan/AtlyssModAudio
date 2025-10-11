@@ -13,7 +13,7 @@ public enum PackFlags : uint
     Enabled = 1 << 0,
     ForceDisableScripts = 1 << 1,
     HasEncounteredErrors = 1 << 2,
-    RemoveConfigEntry = 1 << 3,
+    NotConfigurable = 1 << 3,
     BuiltinPack = 1 << 4,
 }
 

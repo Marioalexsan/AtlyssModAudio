@@ -42,7 +42,7 @@ public partial class ContextData
     public static double MainPlayerLastPvpEventAt { get; internal set; }
 
     [LuaMember("lastPlayerPvp")]
-    public static PlayerProxy? LastPlayerPvpProxy => LastPlayerPvp != null ? new(LastPlayerPvp) : null;
+    public static PlayerProxy? LastPlayerPvpProxy => PlayerProxy.Proxy(LastPlayerPvp);
 
     public static Player? LastPlayerPvp { get; set; }
 

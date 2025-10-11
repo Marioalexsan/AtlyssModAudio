@@ -18,7 +18,7 @@
     <ItemGroup>
         <!-- Thunderstore dependency strings -->
         <ThunderstoreDependency Include="BepInEx-BepInExPack-5.4.2100" Visible="false" />
-        <ThunderstoreDependency Include="Nessie-EasySettings-1.1.8" Visible="false" />
+        <ThunderstoreDependency Include="Nessie-EasySettings-1.2.0" Visible="false" />
         <ThunderstoreDependency Include="Marioalexsan-AtlyssLua-0.1.0" Visible="false" />
         
         <!-- You were good son, real good, maybe even the best -->

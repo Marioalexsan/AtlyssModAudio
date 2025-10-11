@@ -127,8 +127,8 @@ public class ModAudioScript : IDisposable
 
         if (!_rootModule[Pack.Config.PackScripts.Update].TryRead<LuaFunction>(out var update))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Cannot execute update method for {Pack.Config.Id}: an update script is missing!");
-            Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
+            // Silently skip - pack loading should have notified about this during load
+            Pack.SetFlag(PackFlags.HasEncounteredErrors);
             return;
         }
 
@@ -164,8 +164,8 @@ public class ModAudioScript : IDisposable
 
         if (!_rootModule[route.TargetGroupScript].TryRead<LuaFunction>(out var targetGroup))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"A script method for {Pack.Config.Id} is missing for some reason!");
-            Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
+            // Silently skip - pack loading should have notified about this during load
+            Pack.SetFlag(PackFlags.HasEncounteredErrors);
             routeData.SkipRoute = true;
             return;
         }
@@ -205,6 +205,6 @@ public class ModAudioScript : IDisposable
         int index = 1;
 
         foreach (var creep in TrackedAggroCreeps.Creeps)
-            ContextData.AggroedEnemies[index++] = LuaValue.FromUserData(new CreepProxy(creep));
+            ContextData.AggroedEnemies[index++] = LuaValue.FromUserData(CreepProxy.Proxy(creep));
     }
 }

@@ -3,9 +3,19 @@
 namespace Marioalexsan.ModAudio.Scripting.Proxies;
 
 [LuaObject]
-public partial class InGameUIProxy(InGameUI target)
+public partial class InGameUIProxy
 {
-    public readonly InGameUI Target = target;
+    private InGameUIProxy(InGameUI target)
+    {
+        Target = target;
+    }
+
+    public static InGameUIProxy? Proxy(InGameUI? target) => target != null ? new(target) : null;
+
+    public readonly InGameUI Target;
+
+    [LuaMember]
+    public bool _displayUI => Target._displayUI;
 
     [LuaMember]
     public string _reigonTitle => Target._reigonTitle;

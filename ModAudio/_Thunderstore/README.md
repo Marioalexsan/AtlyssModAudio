@@ -8,6 +8,9 @@ Currently, `.ogg`, `.mp3` and `.wav` formats are supported, although `.ogg` and 
 
 You can also write custom scripting behaviour with embedded Lua, allowing you to implement dynamic music (currently an experimental feature).
 
+Current version compatibility:
+- Atlyss 102025.a1
+
 # How to use
 
 ModAudio loads custom audio and routing information from any custom mods you have in the plugins folder (`BepInEx/plugins/YourTeam-YourModName/audio`).
@@ -288,6 +291,13 @@ The callback receives one parameter and returns nothing:
     - Set it to `all` to select all of the target clips for playing (this is also the default group value)
     - Set it to any other string value to select only the target clips that have the given value as their group
   - `skipRoute` - false by default; set to `true` to skip this route, effectively removing it from the route pool for this source
+  - `originalClipName` - original clip name, string, readonly
+  - `clipName` - current clip name, string, readonly
+  - `gameObjectName` - the name of the game object on which the audio is playing, string, readonly
+  - `hasGameObjectInHierarchy(name: string)` - returns a boolean indicating whenever the object with the given name is present in the hierarchy
+    - this must be called using the `:` Lua syntax, like `route:hasGameObjectInHierarchy('_AUDIO')` 
+  - `getGameObjectHierarchy()` - returns an array of strings that contains the game object hierarchy of this audio source
+    - this must be called using the `:` Lua syntax, like `local gameObjects = route:getGameObjectHierarchy()` 
 
 If `enable_dynamic_targeting` is set to true with `~ target_group_script : function_name | enable_dynamic_targeting : true`, then this callback will be called again each frame for this audio source.
 - Having your callback set a different group than the current target group will cause ModAudio to reroute the audio source to the new clip
@@ -298,7 +308,7 @@ If `smooth_dynamic_targeting` is set to true, then the engine will use a short f
 # Mod Compatibility
 
 ModAudio targets the following game versions and mods:
-- ATLYSS 82025.a2
-- Nessie's EasySettings v1.1.8 (optional dependency used for configuration)
+- ATLYSS 102025.a1
+- Nessie's EasySettings v1.2.0 (optional dependency used for configuration)
 
 Compatibility with other game versions and mods is not guaranteed, especially for updates with major changes.

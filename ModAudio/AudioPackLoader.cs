@@ -74,7 +74,7 @@ public static class AudioPackLoader
 
                 existingPacks.Add(knucklesPack = new AudioPack()
                 {
-                    Flags = PackFlags.RemoveConfigEntry | PackFlags.BuiltinPack,
+                    Flags = PackFlags.NotConfigurable | PackFlags.BuiltinPack,
                     Config =
                     {
                         DisplayName = "ModAudio Builtin",
@@ -192,7 +192,6 @@ public static class AudioPackLoader
             {
                 AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
-                route.TargetGroupScript = "";
             }
         }
 
@@ -200,7 +199,6 @@ public static class AudioPackLoader
         {
             AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingUpdateScript(pack.Config.PackScripts.Update, pack));
             pack.SetFlag(PackFlags.HasEncounteredErrors);
-            pack.Config.PackScripts.Update = "";
         }
     }
 

@@ -675,11 +675,11 @@ internal static class AudioEngine
     }
 
     private static TargetGroupData GetCachedTargetGroup(ModAudioSource source, AudioPack pack, Route route)
-        {
+    {
         if (!CachedRoutingTargetGroupData.TryGetValue(route, out var routeData))
         {
             _executeTargetGroups.Begin();
-            routeData = new TargetGroupData();
+            routeData = new TargetGroupData(source);
             pack.Script?.ExecuteTargetGroup(route, routeData);
             _executeTargetGroups.End();
             CachedRoutingTargetGroupData[route] = routeData;
