@@ -10,6 +10,10 @@ internal static class ForeachCache<T>
     private static T[] _cache = new T[InitialCapacity];
     public static int CacheSize { get; private set; } = 0;
 
+    // Note: This method sucks
+    // Make sure you're done with the previous span before trying to call this method again,
+    // otherwise you'll be overwriting the previous span's data!
+    // This includes accidental recursions!
     public static Span<T> CacheFrom(ICollection<T> collection)
     {
         int inputElements = collection.Count;

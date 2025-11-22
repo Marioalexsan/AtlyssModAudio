@@ -74,7 +74,7 @@ internal static class AudioEngine
         get
         {
             const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
-            return _errorClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
+            return _errorClip ??= AudioClipLoader.GenerateEmptyClip(ErrorClipKeyword, EmptyClipSizeInSamples);
         }
     }
     private static AudioClip? _errorClip;
@@ -634,6 +634,8 @@ internal static class AudioEngine
                 var stoppedSource = source;
 
                 var trackedOneShots = ForeachCache<ModAudioSource>.CacheFrom(TrackedOneShots);
+                bool cacheCloned = false;
+
                 for (int i = 0; i < trackedOneShots.Length; i++)
                 {
                     var trackedSource = trackedOneShots[i];
@@ -645,7 +647,21 @@ internal static class AudioEngine
                         continue;
 
                     if (trackedSource.Audio.isPlaying)
+                    {
+                        // Calling Stop() on an audio source has a chance to enter this code block again, triggering CacheFrom again
+                        // This means that we need to clone the one shots we're iterating over in here, otherwise we risk destroying
+                        // the references that were used earlier in the call stack (CacheFrom uses a static cache, so you need to be
+                        // "done" with it before attempting to use it again)
+                        // TODO: This is smelly and bad code. Is it possible to do this copy in a simpler, more intuitive way?
+                        // NOTE: This generates GC allocs, not much I can do about it though!
+                        if (!cacheCloned)
+                        {
+                            cacheCloned = true;
+                            trackedOneShots = trackedOneShots.ToArray();
+                        }
+
                         trackedSource.Audio.Stop();
+                    }
                 }
             }
 
