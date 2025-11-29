@@ -308,7 +308,7 @@ If `smooth_dynamic_targeting` is set to true, then the engine will use a short f
 # Mod Compatibility
 
 ModAudio targets the following game versions and mods:
-- ATLYSS 102025.a1
+- ATLYSS 112025.a1
 - Nessie's EasySettings v1.2.0 (optional dependency used for configuration)
 
 Compatibility with other game versions and mods is not guaranteed, especially for updates with major changes.

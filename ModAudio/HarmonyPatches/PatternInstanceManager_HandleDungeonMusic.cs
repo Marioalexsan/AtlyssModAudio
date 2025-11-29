@@ -10,7 +10,7 @@ namespace Marioalexsan.ModAudio.HarmonyPatches;
 // - Makes the post-boss defeat music switch apply one time only, instead of continuously
 // - Fixes a vanilla behaviour where the hard boss music would be set constantly, instead of just once
 
-[HarmonyPatch]
+[HarmonyPatch(typeof(PatternInstanceManager), nameof(PatternInstanceManager.Client_HandleInstanceMusic))]
 static class PatternInstanceManager_HandleDungeonMusic
 {
     // Utils
@@ -53,8 +53,6 @@ static class PatternInstanceManager_HandleDungeonMusic
     }
 
     // Harmony junk
-
-    static MethodInfo TargetMethod() => typeof(PatternInstanceManager).GetMethods(AccessTools.all).First(x => x.Name.Contains("Handle_DungeonMusic"));
 
     static void Prefix(PatternInstanceManager __instance)
     {

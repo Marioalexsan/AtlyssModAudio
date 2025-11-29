@@ -3,7 +3,7 @@ import glob
 import json
 from pathlib import Path
 
-FOLDER_PATH = 'E:\\AtlyssExport\\82025.a2\\ExportedProject\\Assets\\Resources'
+FOLDER_PATH = 'E:\\AtlyssExport\\112025.a1\\Assets\\Resources'
 
 files = []
 files += glob.glob("**\\*.ogg", root_dir=FOLDER_PATH, recursive=True)
