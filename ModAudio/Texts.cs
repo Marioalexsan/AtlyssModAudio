@@ -53,7 +53,7 @@ public static class Texts
         => $"Refusing to load clip {id} from {path}, a clip with that name was already loaded.";
 
     public static string InvalidPackPath(string path, string id)
-        => $"Refusing to load clip {id} from {path}, its path was outside of audio pack.";
+        => $"Refusing to load clip {id} from {path}, its path was outside of BepInEx/plugins and BepInEx/config.";
 
     public static string AudioFileNotFound(string file, string id)
         => $"File {file} from clip {id} was not found.";
@@ -65,16 +65,16 @@ public static class Texts
         => $"Audio file {file} was not loaded, clip {id} was already loaded previously.";
 
     public static string AutoloadingClips(string path)
-        => $"Autoloading replacement clips from {AudioPackLoader.ReplaceRootPath(path)}";
+        => $"Autoloading replacement clips from {AudioPackLoader.AliasRootPath(path)}";
 
-    public static string LoadingPack(string path)
-        => $"Loading pack from {AudioPackLoader.ReplaceRootPath(path)}";
+    public static string LoadingPack(string path, int configFiles)
+        => $"Loading pack from {AudioPackLoader.AliasRootPath(path)} with {configFiles} config files";
 
     public static string PackLoaded(AudioPack pack)
-        => $"Loaded pack {pack.Config.Id} with {pack.Config.Routes.Count} routes, {pack.PendingClipsToStream.Count} clips to streams and {pack.PendingClipsToLoad.Count} clips to load";
+        => $"Loaded pack {pack.Config.Id} with {pack.Config.Routes.Count} routes, {pack.Config.CustomClips.Count} clips.";
 
     public static string LoadingClip(string path, string name, bool useStreaming)
-        => $"{(useStreaming ? "Streaming" : "Loading")} clip {name} from {AudioPackLoader.ReplaceRootPath(path)}";
+        => $"{(useStreaming ? "Streaming" : "Loading")} clip {name} from {AudioPackLoader.AliasRootPath(path)}";
 
     public static string AudioCannotBeStreamed(string path, long fileSize)
         => $"Audio file {path} is above the size threshold for streaming" +

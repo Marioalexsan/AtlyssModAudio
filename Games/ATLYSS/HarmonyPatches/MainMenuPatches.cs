@@ -3,17 +3,17 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace Marioalexsan.ModAudio.HarmonyPatches;
+namespace Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
 
 [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Awake))]
 static class MainMenuPatches
 {
     [HarmonyPriority(Priority.Last)]
-    static void Postfix()
+    private static void Postfix()
     {
-        ModAudio.Plugin.Knuckles = false;
+        ModAudio.Knuckles = false;
 
-        if (ModAudio.Plugin.EasterEggsEnabled.Value && Chainloader.PluginInfos.ContainsKey(ModAudio.HomebreweryGUID))
+        if (ModAudio.EasterEggsEnabled.Value && SoftDependencies.HasHomebrewery())
         {
             var label = GameObject.Find("HomebreweryMainMenuLabel");
             var text = label ? label.GetComponent<Text>() : null;
@@ -22,10 +22,10 @@ static class MainMenuPatches
             {
                 text.text += "\n& BugAudio";
                 label.transform.localPosition += new Vector3(0f, -text.fontSize, 0f);
-                ModAudio.Plugin.Knuckles = true;
+                ModAudio.Knuckles = true;
             }
         }
 
-        AudioEngine.AudioPacks.FirstOrDefault(x => x.Config.Id == "ModAudio_Knuckles")?.AssignFlag(PackFlags.Enabled, ModAudio.Plugin.Knuckles);
+        AudioEngine.AudioPacks.FirstOrDefault(x => x.Config.Id == "ModAudio_Knuckles")?.AssignFlag(PackFlags.Enabled, ModAudio.Knuckles);
     }
 }

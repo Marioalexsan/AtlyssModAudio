@@ -1,0 +1,76 @@
+﻿%id ModAudio_TestPack_BasicEffects
+%displayname ModAudio Test Pack (BasicEffects)
+
+# Effect format:
+#   source ~ key : value
+#
+# Effects act as settings for a route, changing or adding new functionality.
+# Multiple effects can be specified, separated by pipe symbols:
+#   source ~ target1 : weight1 : volume1 : pitch1 | target2 : weight2 : volume2 : pitch2
+#
+# All effects that can be applied:
+# link_overlay_and_replacement (or link_ovl_repl)
+#   - this setting affects routes that have both replacements and overlays
+#   - if true (default), overlays from this route will play only if the corresponding replacement was applied
+#   - if false, overlays from this route can play even if the corresponding replacement wasn't selected
+# relative_replacement_effects (or rel_repl_fx)
+#   - this setting affects routes that have replacements (including "source ~ effects" style routes) and use volume or pitch
+#   - if true (default), the new volume / pitch of the track is the old volume / pitch multiplied by the volume / pitch you specify in your routes
+#   - if false, the new volume / pitch is set directly as the volume / pitch from the route, i.e. it acts as an overwrite
+# overlay_stops_if_source_stops (or ovl_stop_with_src)
+#   - this setting affects routes that have overlays
+#   - if true (default), overlays stop if the game stops the original audio source programatically, i.e. it might result in cutoffs
+#   - if false, overlays will continue playing even if the game stops the original audio, however this might result in audio spam
+# relative_overlay_effects (or rel_ovl_fx)
+#   - this setting affects routes that have overlays
+#   - this is the same as relative_replacement_effects, except it affects overlay paameters
+# overlays_ignore_restarts (or ovl_ign_restart)
+#   - this setting affects routes that have overlays
+#   - if false (default), overlays will play every time the game plays the original audio, even if the audio is restarted mid playthrough
+#   - if true, overlays will only play once and ignore restarts
+#   - this can be useful to deal with input spam for abilities, weapon hits, or cases where the game plays the audio multiple times in a single frame
+# target_group_script (or tg_lua)
+#   - this setting specifies an exported Lua method that handles target groups for this route
+#   - the Lua method can set a target group using `route.targetGroup = theGroup`, and only the target clips with that group will be chosen to play
+#   - if the Lua method specifies `all` as the target group, then all target clips will be chosen as usual
+#   - alternatively, the Lua method can set `route.skipRoute = true` to skip the route entirely, effectively "filtering" it out
+# enable_dynamic_targeting (or tg_dyn) -
+#   - this setting applies to routes that use a target group script
+#   - if set to true, ModAudio will continuously call your target group method and update the target clip of the audio source with it
+#   - this can be used to implement dynamic audio effects, such as zone specific audio
+# smooth_dynamic_targeting (or tg_smooth)
+#   - this setting applies to routes that use a target group script and have dynamic targeting enabled
+#   - if set to true, ModAudio will fade out / fade in when switching target clips
+# chain_route (or chain)
+#   - this setting affects routes that have replacements
+#   - if set to true, audio that is replaced using your route will be rerouted again and potentially use other routes
+#   - this can be used for scripting purposes: for example, the Combat Audio Pack uses this to play custom action music from other packs if they are installed
+# replacement_weight (or weight or rw or w)
+#   - this setting specifies how often this route is selected to play if multiple routes are available for an original audio
+#   - the chance is calculated as (route weight / total weight of all routes) * 100%
+#   - the default value is 1.0
+# volume (or vol or v)
+#   - this setting acts as a modifier for the volumes specified in the target clips (both replacements and overlays)
+#   - with relative effects set to true, the final volume is calculated as original volume * target clip volume * route volume
+#   - with relative effects set to false, the final volume is calculated as target clip volume * route volume
+#   - the default value is 1.0
+# pitch (or pit or p)
+#   - this setting acts as a modifier for the pitches specified in the target clips (both replacements and overlays)
+#   - with relative effects set to true, the final pitch is calculated as original pitch * target clip pitch * route pitch
+#   - with relative effects set to false, the final pitch is calculated as target clip pitch * route pitch
+#   - the default value is 1.0
+# force_loop (or fl)
+#   - this setting affects the looping of audio tracks
+#   - if not present (default), the vanilla loop setting is kept intact
+#   - if set to true, the audio is forced to loop
+#   - if set to false, the audio is forced to not loop
+# force_play (or fp)
+#   - this setting affects routes that use dynamic targeting with scripts
+#   - if set to true, the audio is forcefully restarted whenever the dynamic group is switched
+#   - this can be useful to force audio to play if it got stopped by the game, and avoid getting it stuck
+
+# Double the pitch of the main menu music 25% of the time (chance is 1 / (3 + 1) * 100%); also make it play once only
+_mu_flyby ~ pitch : 2.0 | weight : 1 | force_loop : false
+
+# Halve the pitch of the main menu music 75% of the time (chance is 3 / (3 + 1) * 100%); this one loops normally
+_mu_flyby ~ pitch : 0.5 | weight : 3

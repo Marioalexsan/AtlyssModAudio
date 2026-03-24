@@ -1,8 +1,8 @@
 ﻿// MIT License, NAudio, Copyright 2020 Mark Heath
 // https://github.com/naudio/NAudio/blob/v2.2.1/NAudio/Mp3FileReader.cs
 
-// ReSharper disable once CheckNamespace
 #pragma warning disable IDE0130 // Namespace does not match folder structure
+// ReSharper disable once CheckNamespace
 namespace NAudio.Wave
 #pragma warning restore IDE0130 // Namespace does not match folder structure
 {

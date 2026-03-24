@@ -50,21 +50,81 @@ public class ModAudioSource
     public readonly AudioSource Audio;
     public AudioSource? OneShotOrigin;
 
-    public AudioStepState InitialState;
-    public AudioStepState AppliedState;
-    public AudioStepState CurrentState => new()
+    /// <summary>
+    /// Used only as part of dynamic targeting.
+    /// This saves the global play position so that dynamic clips flow into one another more smoothly.
+    /// </summary>
+    public TimeSpan DynamicTargetingResumePosition;
+    
+    /// <summary>
+    /// Multiplies all volume sets by this amount, and divides volume gets by this amount
+    /// This allows amplifying audio that is dynamically faded in / out by the game or mods
+    /// </summary>
+    public float ProxyVolumeModifier
     {
-        Clip = Audio.clip,
-        Volume = Audio.volume,
-        Pitch = Audio.pitch,
-        Loop = Audio.loop
-    };
+        get => _proxyVolumeModifier;
+        set
+        {
+            _proxyVolumeModifier = value;
+            Audio.volume = Audio.volume; // Will trigger an update using the new proxy modifier
+        }
+    }
+
+    private float _proxyVolumeModifier = 1f;
+    
+    /// <summary>
+    /// Returns the true volume as set on the engine side
+    /// </summary>
+    public float ProxiedVolume => Audio.volume * ProxyVolumeModifier;
+
+    /// <summary>
+    /// Multiplies all pitch sets by this amount, and divides pitch gets by this amount
+    /// This allows amplifying pitch that is dynamically modified by the game or mods
+    /// </summary>
+    public float ProxyPitchModifier
+    {
+        get => _proxyPitchModifier;
+        set
+        {
+            _proxyPitchModifier = value;
+            Audio.pitch = Audio.pitch; // Will trigger an update using the new proxy modifier
+        }
+    }
+
+    private float _proxyPitchModifier = 1f;
+
+    /// <summary>
+    /// Last value that the volume setter was called with
+    /// </summary>
+    public float LastUnproxiedVolume = 1f;
+
+    /// <summary>
+    /// Last value that the pitch setter was called with
+    /// </summary>
+    public float LastUnproxiedPitch = 1f;
+    
+    /// <summary>
+    /// Returns the true pitch as set on the engine side
+    /// </summary>
+    public float ProxiedPitch => Audio.pitch * ProxyPitchModifier; 
+
+    /// <summary>
+    /// Initial state is the original state of the audio before any modifications applied by ModAudio
+    /// </summary>
+    public AudioStepState InitialState;
+    
+    /// <summary>
+    /// Applied state is the last state (or desired target state) applied by ModAudio; this may or may not be desynced from the actual state
+    /// </summary>
+    public AudioStepState AppliedState;
 
     private readonly RouteStep[] Routes = new RouteStep[MaxChainedRoutes];
 
+    public RouteStep? LatestRoute => RouteCount > 0 ? Routes[RouteCount - 1] : null;
+
     public RouteStep GetRoute(int index)
     {
-        if (index < 0 || index >= Routes.Length)
+        if (index < 0 || index >= RouteCount)
             throw new ArgumentOutOfRangeException("Tried to access a route index that is invalid for this audio source! Please notify the mod developer about this!");
 
         return Routes[index];
@@ -111,6 +171,9 @@ public class ModAudioSource
     
     public void RevertSource()
     {
+        ProxyVolumeModifier = 1f;
+        ProxyPitchModifier = 1f;
+        
         if (Audio.clip != AppliedState.Clip)
         {
             // Likely changed externally

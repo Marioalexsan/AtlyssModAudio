@@ -1,14 +1,25 @@
-﻿using BepInEx.Logging;
+﻿using System.Diagnostics;
+using BepInEx.Logging;
 using Lua;
 using Lua.Standard;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting.Data;
-using Marioalexsan.ModAudio.Scripting.Proxies;
 using System.Text;
 
 namespace Marioalexsan.ModAudio.Scripting;
 
-public class ModAudioScript : IDisposable
+/// <summary>
+/// Note: this is mostly to avoid referencing Lua types as part of signatures in other classes
+/// </summary>
+public interface IModAudioScript : IDisposable
+{
+    public void ExecuteUpdate();
+    public void Start();
+    public bool HasExportedMethod(string name);
+    public void ExecuteTargetGroup(Route route, TargetGroupData routeData);
+}
+
+public class ModAudioScript : IModAudioScript
 {
     private string _rootScript;
     private LuaState _luaState;
@@ -35,13 +46,30 @@ public class ModAudioScript : IDisposable
         _luaState.Environment["print"] = new LuaFunction("print", Print);
         _luaState.Environment["accessPath"] = new LuaFunction("print", AccessPath);
 
+        ModAudioModule.Context = AudioEngine.Game.Context as ILuaUserData;
+        var gameData = AudioEngine.Game.GameData as ILuaUserData;
+        
+        if (gameData == null || ModAudioModule.Context == null)
+            Logging.LogWarning("Either game data or context for Lua was null! Please report this to the mod developer!");
+        
         _luaState.Environment["modaudio"] = LuaValue.FromUserData(new ModAudioModule());
-        _luaState.Environment["atlyss"] = LuaValue.FromUserData(new AtlyssModule());
+        _luaState.Environment["game"] = LuaValue.FromUserData(gameData);
+        
+        // Atlyss used to grab its data from this property; keep it around for backwards compatibility
+        _luaState.Environment["atlyss"] = LuaValue.FromUserData(gameData);
     }
 
     public void Dispose()
     {
         _luaState.Dispose();
+    }
+    
+    private CancellationTokenSource GetTokenSourceWithExecutionLimitsForInitialization()
+    {
+        // Script initializers will be killed if they take more than 2500ms to execute
+        // Note: script initialization is ass and the first script init can take significantly more time
+        // than the rest
+        return new CancellationTokenSource(TimeSpan.FromMilliseconds(2500));
     }
 
     private CancellationTokenSource GetTokenSourceWithExecutionLimits()
@@ -97,13 +125,17 @@ public class ModAudioScript : IDisposable
 
         try
         {
-            var tokenSource = GetTokenSourceWithExecutionLimits();
+            var tokenSource = GetTokenSourceWithExecutionLimitsForInitialization();
 
+            var stopwatch = Stopwatch.StartNew();
             var result = _luaState.DoStringAsync(_rootScript, $"__routes.lua for {Pack.Config.Id}", tokenSource.Token).Result;
+            stopwatch.Stop();
             _rootScript = "";
 
             if (result.Length == 0 || !result[0].TryRead<LuaTable>(out var table))
                 throw new InvalidOperationException("Expected an exported table from the Lua module!");
+            
+            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loading __routes.lua for {Pack.Config.Id} took {stopwatch.Elapsed.TotalMilliseconds:F2}ms.");
 
             _rootModule = table;
         }
@@ -176,7 +208,7 @@ public class ModAudioScript : IDisposable
             var tokenSource = GetTokenSourceWithExecutionLimits();
 
             // TODO: Check whenever scripts are allocating way too much total memory
-            _ = _luaState.Call(targetGroup, [new LuaValue(routeData)], tokenSource.Token).Result;
+            _ = _luaState.Call(targetGroup, [new LuaValue((TargetGroupData)routeData)], tokenSource.Token).Result;
         }
         catch (Exception e)
         {
@@ -194,17 +226,5 @@ public class ModAudioScript : IDisposable
 
     private void PostScriptActions()
     {
-    }
-
-    public static void TriggerNewFrame()
-    {
-        TrackedAggroCreeps.Creeps.RemoveWhere(x => x == null || x.Network_aggroedEntity == null);
-
-        ContextData.AggroedEnemies.Clear();
-
-        int index = 1;
-
-        foreach (var creep in TrackedAggroCreeps.Creeps)
-            ContextData.AggroedEnemies[index++] = LuaValue.FromUserData(CreepProxy.Proxy(creep));
     }
 }

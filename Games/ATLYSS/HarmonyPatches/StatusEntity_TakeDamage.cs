@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-namespace Marioalexsan.ModAudio.HarmonyPatches;
+namespace Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
 
 [HarmonyPatch(typeof(StatusEntity), nameof(StatusEntity.Take_Damage))]
 static class StatusEntity_TakeDamage

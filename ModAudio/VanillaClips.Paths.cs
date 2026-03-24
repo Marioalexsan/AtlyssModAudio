@@ -2,7 +2,7 @@
 
 public static partial class VanillaClips
 {
-    public static readonly string[] Paths = [
+    private static readonly string[] Paths = [
         "_sound/angela_aura.ogg",
         "_sound/bombBiggenEX.ogg",
         "_sound/bombHitChar.ogg",
@@ -542,6 +542,4 @@ public static partial class VanillaClips
         "_sound/_voice/_player/_poon/_poonTalk05.ogg",
         "_sound/_voice/_player/_poon/_poonTalk06.ogg",
     ];
-
-    public static readonly Dictionary<string, string> NameToResourcePath = Paths.ToDictionary(Path.GetFileNameWithoutExtension, path => path[..^Path.GetExtension(path).Length]);
 }

@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Project customization -->
+    <PropertyGroup>
+        <AssemblyName>Marioalexsan.ModAudio.Atlyss</AssemblyName>
+        <Product>ModAudio.Atlyss</Product>
+        <Version>4.2.0</Version>
+        <RootNamespace>Marioalexsan.ModAudio.Atlyss</RootNamespace>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <!-- Build config -->
+    <PropertyGroup>
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>embedded</DebugType>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <LangVersion>latest</LangVersion>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Platforms>AnyCPU</Platforms>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <AssemblyCSharpDir>D:\SteamLibrary\steamapps\common\ATLYSS\ATLYSS_Data\Managed\</AssemblyCSharpDir>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.2" PrivateAssets="all" />
+
+        <PackageReference Include="UnityEngine.Modules" Version="2022.3.62">
+            <IncludeAssets>all</IncludeAssets>
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+
+        <Reference Include="$(AssemblyCSharpDir)Assembly-CSharp.dll" Publicize="true" Private="False" />
+        <Reference Include="$(AssemblyCSharpDir)UnityEngine.UI.dll" Publicize="true" Private="False" />
+        <Reference Include="$(AssemblyCSharpDir)Mirror.dll" Publicize="true" Private="False" />
+        <ProjectReference Include="..\..\ModAudio\ModAudio.csproj" />
+        <ProjectReference Include="..\..\_Submodules\Lua-CSharp-Atlyss\src\Lua.SourceGenerator\Lua.SourceGenerator.csproj" OutputItemType="Analyzer" />
+        <ProjectReference Include="..\..\_Submodules\Lua-CSharp-Atlyss\src\Lua\Lua.csproj" />
+    </ItemGroup>
+    
+    <Target Name="AppendThunderstoreBuild" AfterTargets="Build">
+        <Message Text="Appending Thunderstore package in $(ProjectDir)../../ModAudio/_ThunderstoreBuild" Importance="High" />
+        <Unzip
+                SourceFiles="$(ProjectDir)../../ModAudio/_ThunderstoreBuild/Marioalexsan-ModAudio-$(Version).zip"
+                DestinationFolder="$(ProjectDir)../../ModAudio/_ThunderstoreBuild/_Append" />
+        <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(ProjectDir)../../ModAudio/_ThunderstoreBuild/_Append/plugins" />
+        <ZipDirectory
+                SourceDirectory="$(ProjectDir)../../ModAudio/_ThunderstoreBuild/_Append"
+                DestinationFile="$(ProjectDir)../../ModAudio/_ThunderstoreBuild/Marioalexsan-ModAudio-$(Version).zip"
+                Overwrite="true" />
+    </Target>
+</Project>

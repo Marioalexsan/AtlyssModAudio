@@ -1,0 +1,30 @@
+﻿%id ModAudio_TestPack_BasicOverlay
+%displayname ModAudio Test Pack (BasicOverlay)
+
+# Overlay format:
+#   source @ target : weight : volume : pitch
+#
+# Overlay support multiple targets, separated by pipe symbols. One of them is chosen randomly to play, based on weight:
+#   source @ target1 : weight1 : volume1 : pitch1 | target2 : weight2 : volume2 : pitch2
+#
+# Every parameter after the target clip is optional. These are all valid (and equivalent) replacements:
+#   source = target
+#   source = target : 1.0
+#   source = target : 1.0 : 1.0
+#   source = target : 1.0 : 1.0 : 1.0
+#
+# source - name of clip you want to replace
+# target - name of clip from your pack OR "___nothing___" to play an empty clip OR <atlyss>clip_name to play a vanilla clip OR "___default___" to replay the source clip
+# weight - if you have multiple targets, one is picked at random; the chance is calculated as (target weight / total target weights) * 100%
+# volume - sets the volume of the overlay directly, i.e. target volume = volume
+# pitch - sets the pitch of the overlay directly, i.e.: target pitch = pitch
+# target_group - used as part of Lua scripting, you can omit it if you don't use Lua scripts
+
+# Basic overlay
+footStep_stone @ <atlyss>hampter_defend
+
+# Overlay with 50% volume
+footStep_grass02 @ <atlyss>hampter_defend : 1.0 : 0.5
+
+# Overlay with 75% volume and 50% pitch
+footStep_water @ <atlyss>hampter_defend : 1.0 : 0.75 : 0.5

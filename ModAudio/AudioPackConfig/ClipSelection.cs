@@ -23,10 +23,7 @@ public class ClipSelection
     /// Pitch adjustment for this selection.
     /// </summary>
     public float Pitch { get; set; } = 1f;
-}
-
-public class ReplacementClipSelection : ClipSelection
-{
+    
     /// <summary>
     /// Target group of this replacement.
     /// This is used only if a target group script is specified, otherwise it's ignored.

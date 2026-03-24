@@ -2,6 +2,13 @@
 
 public static partial class VanillaClips
 {
+    static VanillaClips()
+    {
+        NameToResourcePath = Paths.ToDictionary(Path.GetFileNameWithoutExtension, path => path[..^Path.GetExtension(path).Length]);
+    }
+
+    public static readonly Dictionary<string, string> NameToResourcePath;
+    
     private struct TableRow(string clipName, string clipPath, string description)
     {
         public string Name = clipName;

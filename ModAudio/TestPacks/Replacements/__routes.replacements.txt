@@ -1,0 +1,33 @@
+%id ModAudio_TestPack_BasicReplacement
+%displayname ModAudio Test Pack (BasicReplacement)
+
+# Replacement format:
+#   source = target : weight : volume : pitch : target_group
+#
+# Replacements support multiple targets, separated by pipe symbols. One of them is chosen randomly to play, based on weight:
+#   source = target1 : weight1 : volume1 : pitch1 : target_group1 | target2 : weight2 : volume2 : pitch2 : target_group2
+#
+# Every parameter after the target clip is optional. These are all valid (and equivalent) replacements:
+#   source = target
+#   source = target : 1.0
+#   source = target : 1.0 : 1.0
+#   source = target : 1.0 : 1.0 : 1.0
+#   source = target : 1.0 : 1.0 : 1.0 : all
+#
+# source - name of clip you want to replace
+# target - name of clip from your pack OR "___nothing___" to play an empty clip OR <atlyss>clip_name to play a vanilla clip OR "___default___" to replay the source clip
+# weight - if you have multiple targets, one is picked at random; the chance is calculated as (target weight / total target weights) * 100%
+# volume - acts as a volume multiplier, i.e.: target volume = volume * source volume
+# pitch - acts as a pitch multiplier, i.e.: target pitch = pitch * source pitch
+# target_group - used as part of Lua scripting, you can omit it if you don't use Lua scripts
+
+# Basic replacement:
+vox_angela01 = <atlyss>hampter_defend
+
+# Replacement with 25% higher volume:
+vox_angela02 = <atlyss>hampter_defend : 1.0 : 1.25
+
+# Replacement with 50% higher volume and 50% lower pitch that plays 25% of the time, and another replacement with normal parameters that plays 75% of the time:
+# Chance for first replacement: 25% = (1 / (1 + 3)) * 100%
+# Chance for second replacement: 75% = (3 / (1 + 3)) * 100%
+vox_angela05 = <atlyss>hampter_defend : 1.0 : 1.5 : 0.5 | <atlyss>hampter_defend : 3.0

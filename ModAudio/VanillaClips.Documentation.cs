@@ -6,7 +6,7 @@
 
 public static partial class VanillaClips
 {
-    public static readonly Dictionary<string, string> Documentation = new Dictionary<string, string>()
+    private static readonly Dictionary<string, string> Documentation = new Dictionary<string, string>()
     {
         ["_sound/angela_aura.ogg"] = "",
         ["_sound/bombBiggenEX.ogg"] = "",

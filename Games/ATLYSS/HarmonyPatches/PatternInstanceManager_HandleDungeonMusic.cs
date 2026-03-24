@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 
-namespace Marioalexsan.ModAudio.HarmonyPatches;
+namespace Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
 
 // Why is this the only place that requires a specific patch for ATLYSS? Ugh
 // Applies the following changes:

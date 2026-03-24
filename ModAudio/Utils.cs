@@ -5,10 +5,12 @@ namespace Marioalexsan.ModAudio;
 
 internal static class ForeachCache<T>
 {
-    public const int InitialCapacity = 1024;
+    private const int InitialCapacity = 1024;
 
     private static T[] _cache = new T[InitialCapacity];
-    public static int CacheSize { get; private set; } = 0;
+    
+    // ReSharper disable once StaticMemberInGenericType
+    private static int CacheSize = 0;
 
     // Note: This method sucks
     // Make sure you're done with the previous span before trying to call this method again,
@@ -24,7 +26,6 @@ internal static class ForeachCache<T>
             _cache = new T[collection.Count * 2];
 
             collection.CopyTo(_cache, 0);
-            CacheSize = inputElements;
         }
         else
         {
@@ -33,10 +34,9 @@ internal static class ForeachCache<T>
             // Clear out previous values that didn't get replaced
             for (int i = inputElements; i < CacheSize; i++)
                 _cache[i] = default!;
-
-            CacheSize = inputElements;
         }
-
+        
+        CacheSize = inputElements;
         return new Span<T>(_cache, 0, CacheSize);
     }
 }

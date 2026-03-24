@@ -63,6 +63,23 @@ static class AudioSource_Stop
 [HarmonyPatch(typeof(AudioSource), nameof(AudioSource.volume), MethodType.Setter)]
 static class AudioSource_VolumeSetter
 {
-    // The line between genius and stupidity is often blurry
-    static bool Prefix(AudioSource __instance) => !AudioEngine.IsVolumeLocked(__instance);
+    static bool Prefix(AudioSource __instance, ref float value) => AudioEngine.SetVolumeCallback(__instance, ref value);
+}
+
+[HarmonyPatch(typeof(AudioSource), nameof(AudioSource.pitch), MethodType.Setter)]
+static class AudioSource_PitchSetter
+{
+    static bool Prefix(AudioSource __instance, ref float value) => AudioEngine.SetPitchCallback(__instance, ref value);
+}
+
+[HarmonyPatch(typeof(AudioSource), nameof(AudioSource.volume), MethodType.Getter)]
+static class AudioSource_VolumeGetter
+{
+    static void Postfix(AudioSource __instance, ref float __result) => AudioEngine.GetVolumeCallback(__instance, ref __result);
+}
+
+[HarmonyPatch(typeof(AudioSource), nameof(AudioSource.pitch), MethodType.Getter)]
+static class AudioSource_PitchGetter
+{
+    static void Postfix(AudioSource __instance, ref float __result) => AudioEngine.GetPitchCallback(__instance, ref __result);
 }

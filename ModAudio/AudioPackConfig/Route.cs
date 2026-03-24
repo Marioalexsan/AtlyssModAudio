@@ -41,7 +41,7 @@ public class Route
     /// <summary>
     /// A list of clips to be used as replacements for this route.
     /// </summary>
-    public List<ReplacementClipSelection> ReplacementClips { get; set; } = [];
+    public List<ClipSelection> ReplacementClips { get; set; } = [];
 
     /// <summary>
     /// A list of clips to be used as overlays for this route.
@@ -78,7 +78,7 @@ public class Route
     public bool ForcePlay { get; set; } = false;
 
     /// <summary>
-    /// The name of an exported JavaScript method from the audio pack script that dynamically picks a target group to play.
+    /// The name of an exported Lua method from the audio pack script that dynamically picks a target group to play.
     /// If this is specified, only the target clips that have the specified group will be chosen to play.
     /// One special group is available:
     /// - "all" - explicitly selects all of the tracks from this route.
@@ -103,4 +103,11 @@ public class Route
     /// This can be handy if you try to reroute to a vanilla clip - in this case, the vanilla clip will then be rerouted to other routes' custom music.
     /// </summary>
     public bool UseChainRouting { get; set; } = false;
+
+    /// <summary>
+    /// If set to a non-empty list of non-empty values, the route will apply only when the current map name is one of the given values.
+    /// If set to the special value "___nomap___", the route will apply only when there is no map available right now.
+    /// Note: This is a feature specific to Atlyss.
+    /// </summary>
+    public List<string> MapNameCondition { get; set; } = [];
 }

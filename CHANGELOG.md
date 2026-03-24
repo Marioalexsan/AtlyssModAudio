@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-Jan-05
+
+### Added
+
+- **Important: ModAudio's base functionality is now game independent**
+  - Any game that uses AudioSources, is (somewhat) compatible API wise with Unity 2022.3, and uses .NET Standard 2.1 should now have experimental support
+  - ATLYSS itself will keep any existing functionality
+  - Games that don't have any official support will show a warning in the console about it
+- **Important: ModAudio now loads and unloads all audio on demand**
+  - This will significantly reduce both load times and memory usage, but it may introduce some stuttering when the audio is first used
+- Added a route effect `map_name` that specifies the map on which the route should be active
+  - Map names are specified in the same way they are shown in-game, i.e. `map_name : Crescent Road`
+  - A special value of `map_name : ___nomap___` can be used to make the route apply only when there is no map available (main menu, etc.)
+  - The route is skipped if `map_name` doesn't match the current map's name
+- Overlays now support target groups from scripts; if a target group is specified, only the overlays with that group will be able to play
+- Most route effects now have shorter aliases that can be used:
+  - `link_overlay_and_replacement` - `link_ovl_repl`
+  - `relative_replacement_effects` - `rel_repl_fx`
+  - `overlay_stops_if_source_stops` - `ovl_stop_with_src`
+  - `relative_overlay_effects` - `rel_ovl_fx`
+  - `overlays_ignore_restarts` - `ovl_ign_restart`
+  - `target_group_script` - `tg_lua`
+  - `enable_dynamic_targeting` - `tg_dyn`
+  - `smooth_dynamic_targeting` - `tg_smooth`
+  - `chain_route` - `chain`
+  - `replacement_weight` - `w`, `rw`, and `weight`
+  - `volume` - `v` and `vol`
+  - `pitch` - `p` and `pit`
+  - `force_loop` - `fl`
+  - `force_play` - `fp`
+  - `map_name` - `map`
+- ModAudio will now also load files in the format of `__routes.{name}.txt` in addition to `__routes.txt`
+  - if there are multiple `.txt` files in a single folder, they will be concatenated together and act as a single pack
+  - Example: `__routes.zelda_sfx.txt`, `__routes.zelda_music.txt`
+  - This does not affect Lua scripts; they have to be specified using `__routes.lua` as before
+- Added support for specifying custom clip paths using `%customclippath clipName = relative/path/to/clip`
+  - Paths to clips must be specified relative to the audio pack folder (i.e. where `__routes.txt` is)
+  - If the path is prefixed with `plugin://`, then the path is relative to the `BepInEx/plugins` folder
+  - If the path is prefixed with `config://`, then the path is relative to the `BepInEx/config` folder
+  - The relative audio path must resolve to a file within `BepInEx/plugins` or `BepInEx/config`; loading outside of those locations is not allowed
+- Audio debug display menu now allows opening the folder for a specific audio pack in Explorer
+- Added the ability for modpacks to override individual audio pack settings by using `modaudio.modpack_overrides.json` files
+  - Currently, it is limited to overriding the enable state of audio packs
+
+### Changed
+
+- For `ATLYSS`: source clip `modaudio_map_{map_name}_{day/night/action/music}` for map names is deprecated in favor of `modaudio_atlyss_map_{map_name}_{day/night/action/music}`
+    - The previous option will remain supported, but try to migrate to the one with `atlyss` in the prefix if possible
+- For `ATLYSS`: source clips of the format `modaudio_atlyss_map_{map_name}_{day/night/action/music}` are now implemented as aliases, and will work for targeting
+  day / night / action / null music regardless of whenever there is an actual underlying clip available or not
+  - If `modaudio_atlyss_map_{map_name}_null` is routed to `___disable___`, or the game doesn't have null music for the given map, then day / night cycle music will be used
+  - If `modaudio_atlyss_map_{map_name}_null` is routed to a proper clip, then the area will use the null music instead of day / night music (i.e. it will play 24/7)
+- A new special clip `___disable___` is added for switching from day/night to null map music. Outside of that content, it behaves the same as `___nothing___`
+- Added some metrics for Lua script initialization
+- Routes of the format `source ~ effects` (i.e. without overlays nor replacements) now act as if they have an implicit `___default___` replacement
+    - This should fix issues with not being able to modify vanilla clips in place using those route styles
+- Changed the behaviour of streamed / loaded audio so that it is streamed if it were to surpass 7 MiB of memory usage in
+  uncompressed audio form
+  - This corresponds to about 20 seconds of 44100 Hz stereo audio
+  - This threshold is more aggressive than the previous one; it will result in more existing music being streamed 
+    instead of loaded in memory, which should somewhat reduce issues with memory usage
+- The audio debug log now uses a circular buffer, meaning it will display the latest 10000 messages instead of clearing out half of the messages whenever it reaches that limit
+- Audio debug log's text filter now has an option to match by exact word
+- Audio debug log's UI has been reorganized
+- Loading vanilla clips from the game can now be done with `<game>target_clip`. `<atlyss>target_clip` still works, but is considered as deprecated.
+
+### Fixed
+
+- Overlays wouldn't play properly if there was no replacement selected for the given audio
+- Increased the timeout for Lua script initialization from 100ms to 2500ms to take into account cold starts
+
 ## [4.1.2] - 2025-Nov-22
 
 ### Fixed
@@ -64,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Somewhat improved performance of scripting (mostly thanks to the scripting backend change)
 - Somewhat improved general performance of the mod
+- The route loader now indicates the files in which an invalid route was detected
 
 ## [3.3.0] - 2025-Sep-17
 

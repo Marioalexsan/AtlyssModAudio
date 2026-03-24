@@ -9,8 +9,8 @@ namespace Marioalexsan.ModAudio.Scripting.Data;
 public partial class ModAudioModule
 {
     [LuaMember("context")]
-    public static ContextData Context { get; } = new ContextData();
+    public static ILuaUserData? Context { get; internal set; } = null;
 
     [LuaMember("engine")]
-    public static EngineData Engine { get; } = new EngineData();
+    public static EngineData Engine { get; internal set; } = new EngineData();
 }

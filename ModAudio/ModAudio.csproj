@@ -1,19 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-    <!-- Mod and assembly info. These also determine the metadata for Thunderstore and whatnot. -->
+    <!-- Project customization -->
     <PropertyGroup>
-        <!-- Also set as plugin GUID -->
         <AssemblyName>Marioalexsan.ModAudio</AssemblyName>
-
-        <!-- Also set as plugin name -->
         <Product>ModAudio</Product>
-
-        <!-- Also set as plugin version and Thunderstore package version -->
-        <Version>4.1.2</Version>
+        <Version>4.2.0</Version>
+        <RootNamespace>Marioalexsan.ModAudio</RootNamespace>
+        <EnableReleaseProfiling>true</EnableReleaseProfiling>
     </PropertyGroup>
 
-    <!-- Generic assembly info. -->
+    <!-- Build config -->
     <PropertyGroup>
-        <RootNamespace>Marioalexsan.ModAudio</RootNamespace>
         <DebugSymbols>true</DebugSymbols>
         <DebugType>embedded</DebugType>
         <TargetFramework>netstandard2.1</TargetFramework>
@@ -25,53 +21,70 @@
         <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
+    <!-- Emit Unity's ProfileMarkers in debug builds -->
     <PropertyGroup Condition="'$(Configuration)' == 'Debug' Or '$(EnableReleaseProfiling)' == 'true'">
-        <DefineConstants>
-            <!--
-            -->ENABLE_PROFILER;<!-- For Unity's ProfileMarkers to actually emit calls
-            -->
-        </DefineConstants>
-    </PropertyGroup>
-    
-    <PropertyGroup>
-        <AtlyssManaged>$(AtlyssPath)/ATLYSS_Data/Managed/</AtlyssManaged>
+        <DefineConstants>ENABLE_PROFILER</DefineConstants>
     </PropertyGroup>
 
+    <!-- Dependencies -->
+    <PropertyGroup>
+        <AssemblyCSharpDir>D:\SteamLibrary\steamapps\common\ATLYSS\ATLYSS_Data\Managed\</AssemblyCSharpDir>
+    </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="BepInEx.Analyzers" PrivateAssets="all" Version="1.*" />
         <PackageReference Include="BepInEx.Core" Version="5.4.*" />
         <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.2" PrivateAssets="all" />
-        
+
         <PackageReference Include="UnityEngine.Modules" Version="2022.3.62">
             <IncludeAssets>all</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        
-        <Reference Include="$(AtlyssManaged)Assembly-CSharp.dll" Publicize="true" Private="False" />
-        <Reference Include="$(AtlyssManaged)UnityEngine.UI.dll" Private="False" />
-        <Reference Include="$(AtlyssManaged)UnityEngine.IMGUIModule.dll" Private="False" />
-        <Reference Include="$(AtlyssManaged)Newtonsoft.Json.dll" Private="False" />
-        <Reference Include="$(AtlyssManaged)Mirror.dll" Private="False" />
-        <Reference Include="$(AtlyssManaged)com.rlabrecque.steamworks.net.dll" Private="False" />
 
         <PackageReference Include="NAudio.Core" Version="2.2.1" />
         <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
         <PackageReference Include="NVorbis" Version="0.10.5" />
 
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.2" Private="False" />
         <PackageReference Include="Nessie-EasySettings" Version="1.1.8" Private="False" />
     </ItemGroup>
-
     <ItemGroup>
-      <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua.SourceGenerator\Lua.SourceGenerator.csproj" OutputItemType="Analyzer" />
-      <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua\Lua.csproj" />
+        <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua.SourceGenerator\Lua.SourceGenerator.csproj" OutputItemType="Analyzer" />
+        <ProjectReference Include="..\_Submodules\Lua-CSharp-Atlyss\src\Lua\Lua.csproj" />
     </ItemGroup>
-
+    
+    <!-- Extra folders -->
     <ItemGroup>
-      <None Update="Assets\knuckles.ogg">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
-      <None Update="Assets\LICENSE-ASSETS.txt">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
+        <Content Include="Assets/**/*" />
+        <Content Include="TestPacks/**/*" />
+    </ItemGroup>
+    
+    <!-- Mod packaging (uses Thunderstore format) -->
+    <PropertyGroup>
+        <CreateThunderstorePackage>true</CreateThunderstorePackage>
+        <ThunderstorePackageName>ModAudio</ThunderstorePackageName>
+        <ThunderstoreTeamName>Marioalexsan</ThunderstoreTeamName>
+        <ThunderstorePackageDescription>Replace game audio with your own mixtape.</ThunderstorePackageDescription>
+        <ThunderstoreWebsite>https://github.com/Marioalexsan/AtlyssModAudio</ThunderstoreWebsite>
+    </PropertyGroup>
+    <ItemGroup>
+        <ThunderstoreDependency Visible="false" Include="BepInEx-BepInExPack-5.4.2100" />
+        <ThunderstoreDependency Visible="false" Include="Nessie-EasySettings-1.2.0" />
+        <ThunderstoreDependency Visible="false" Include="Marioalexsan-AtlyssLua-0.1.0" />
+
+        <ThunderstoreFile Visible="false" Include="../README.md" />
+        <ThunderstoreFile Visible="false" Include="../CHANGELOG.md" />
+        <ThunderstoreFile Visible="false" Include="../icon.png" />
+        <ThunderstoreFile Visible="false" Include="../LICENSE" />
+
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="$(AssemblyName).dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="Microsoft.Win32.Registry.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NAudio.Core.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NAudio.WinMM.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NVorbis.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="System.Memory.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="System.Runtime.CompilerServices.Unsafe.dll" />
+
+        <ThunderstoreFile Visible="false" Include="Assets/**/*.*" Folder="plugins/Assets/%(RecursiveDir)" />
+        <ThunderstoreFile Visible="false" Include="TestPacks/**/*.*" Folder="plugins/TestPacks/%(RecursiveDir)" />
     </ItemGroup>
 </Project>

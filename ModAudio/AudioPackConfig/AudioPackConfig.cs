@@ -1,4 +1,6 @@
-﻿namespace Marioalexsan.ModAudio;
+﻿using BepInEx.Logging;
+
+namespace Marioalexsan.ModAudio;
 
 public class AudioPackConfig
 {
@@ -43,21 +45,45 @@ public class AudioPackConfig
         return true;
     }
 
-    public static AudioPackConfig ReadRouteConfig(Stream stream)
+    public static AudioPackConfig ReadRouteConfig(List<string> routePaths)
     {
-        var routeConfig = RouteConfig.ReadTextFormat(stream);
+        RouteConfig routeConfig = new();
+        
+        foreach (var path in routePaths)
+        {
+            var aliasedPath = AudioPackLoader.AliasRootPath(path);
+            try
+            {
+                using var stream = File.OpenRead(path);
+                RouteConfig.ReadTextFormat(stream, routeConfig, ((lineNumber, message) => Logging.LogWarning($"File {aliasedPath}, line {lineNumber}: {message}")));
+            }
+            catch (Exception e)
+            {
+                AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read route file {aliasedPath}.");
+                AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+            }
+        }
 
+        for (int i = 0; i < routeConfig.Routes.Count; i++)
+        {
+            var route = routeConfig.Routes[i];
+
+            // "source ~ effect" routes act as if they have an implicit default replacement
+            if (route.ReplacementClips.Count == 0 && route.OverlayClips.Count == 0)
+                route.ReplacementClips.Add(new() { Name = "___default___" });
+        }
+        
         var config = new AudioPackConfig
         {
             CustomClips = routeConfig.Routes
                 .SelectMany(x => x.ReplacementClips.Concat(x.OverlayClips))
                 .Select(x => x.Name)
-                .Where(x => x != AudioEngine.DefaultClipKeyword && x != AudioEngine.EmptyClipKeyword && !x.Trim().StartsWith('<')) // TODO: Move these magic strings to a constant
+                .Where(x => !AudioEngine.IsSpecialClip(x) && !x.Trim().StartsWith('<')) // TODO: Move these magic strings to a constant
                 .Distinct()
                 .Select(x => new AudioClipData()
                 {
                     Name = x,
-                    Path = x,
+                    Path = routeConfig.ClipPaths.ContainsKey(x) ? routeConfig.ClipPaths[x] : x,
                     Volume = routeConfig.ClipVolumes.ContainsKey(x) ? routeConfig.ClipVolumes[x] : 1f
                 })
                 .ToList(),
@@ -73,7 +99,7 @@ public class AudioPackConfig
 
         foreach (var clipVolume in routeConfig.ClipVolumes)
         {
-            if (!config.CustomClips.Any(x => x.Name == clipVolume.Key))
+            if (config.CustomClips.All(x => x.Name != clipVolume.Key))
                 Logging.LogWarning($"Couldn't find clip {clipVolume.Key} to set volume for.");
         }
 

@@ -56,9 +56,9 @@ public static class AudioSourceExtensions
         var volumeDisplay = state.InitialState.Volume != state.AppliedState.Volume ? $"{state.InitialState.Volume:F2} > {state.AppliedState.Volume:F2}" : $"{state.AppliedState.Volume:F2}";
         var pitchDisplay = state.InitialState.Pitch != state.AppliedState.Pitch ? $"{state.InitialState.Pitch:F2} > {state.AppliedState.Pitch:F2}" : $"{state.AppliedState.Pitch:F2}";
 
-        var messageDisplay = $"Clip {clipDisplay} Src {state.Audio.name} Vol {volumeDisplay} Pit {pitchDisplay} AudGrp {state.Audio.outputAudioMixerGroup?.name ?? "(null)"}";
+        var messageDisplay = $"[{clipDisplay}] ({state.Audio.name}) V:{volumeDisplay} P:{pitchDisplay} G:{state.Audio.outputAudioMixerGroup?.name ?? "(null)"}";
 
-        messageDisplay += $" Routing (";
+        messageDisplay += $" R:(";
 
         bool dynamicRoute = false;
 
@@ -83,7 +83,7 @@ public static class AudioSourceExtensions
         messageDisplay += " loop_" + (state.AppliedState.Loop ? "on" : "off");
 
         if (state.HasFlag(AudioFlags.LoopWasForced))
-            messageDisplay += "(forced)";
+            messageDisplay += "_force";
 
         if (dynamicRoute)
             messageDisplay += " dynamic";
@@ -94,6 +94,11 @@ public static class AudioSourceExtensions
         if (state.Audio.playOnAwake)
             messageDisplay += " onAwake";
 
+        if (AudioEngine.Game.TryGetDistanceFromPlayer(state.Audio, out float distance))
+        {
+            messageDisplay += $" D:{distance:F2}";
+        }
+
         // AudioGroup is lowercased since it needs to be in an exact, expected format for efficient filtering
         string tags = $"AudGrp {(state.Audio.outputAudioMixerGroup?.name ?? "(null)").ToLower()}";
 
@@ -102,14 +107,6 @@ public static class AudioSourceExtensions
 
         if (state.HasFlag(AudioFlags.IsOverlay))
             tags += ",Overlay";
-
-        float distance = float.MinValue;
-
-        if (Player._mainPlayer)
-            distance = Vector3.Distance(Player._mainPlayer.transform.position, state.Audio.transform.position);
-
-        if (distance != float.MinValue)
-            messageDisplay += $" Dst {distance:F2}";
 
         AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags, extraParam1: distance);
     }

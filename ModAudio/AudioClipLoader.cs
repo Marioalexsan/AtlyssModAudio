@@ -5,6 +5,32 @@ namespace Marioalexsan.ModAudio;
 
 public static class AudioClipLoader
 {
+    public struct LoadResult
+    {
+        public LoadResult()
+        {
+            Samples = [];
+        }
+        
+        public float[] Samples;
+        public int TotalFrames;
+        public int ChannelsPerFrame;
+        public int Frequency;
+        public IAudioStream? OpenStream;
+
+        public AudioClip CreateFromResult(string clipName)
+        {
+            if (OpenStream == null)
+            {
+                var clip = AudioClip.Create(clipName, TotalFrames, ChannelsPerFrame, Frequency, false);
+                clip.SetData(Samples, 0);
+                return clip;
+            }
+            
+            return AudioClip.Create(clipName, TotalFrames, ChannelsPerFrame, Frequency, true, OpenStream.ReadSamples, OpenStream.SetSamplePosition);
+        }
+    }
+
     public static readonly string[] SupportedLoadExtensions = [
         ".wav",
         ".ogg",
@@ -30,33 +56,60 @@ public static class AudioClipLoader
     }
 
     /// <summary>
-    /// Loads an audio clip in its entirety from the disk.
+    /// Checks if the given audio file would be best streamed or not.
     /// </summary>
-    public static AudioClip LoadFromFile(string clipName, string path, float volumeModifier)
+    public static bool ShouldStreamFile(string path)
     {
         using var stream = GetStream(path);
-        stream.VolumeModifier = volumeModifier;
-
-        var clip = AudioClip.Create(clipName, stream.TotalFrames, stream.ChannelsPerFrame, stream.Frequency, false);
-
-        var totalSamples = stream.TotalFrames * stream.ChannelsPerFrame;
-
-        var buffer = new float[totalSamples];
-
-        stream.ReadSamples(buffer);
-        clip.SetData(buffer, 0);
-        return clip;
+        long approxUncompressedSizeBytes = stream.TotalFrames * stream.ChannelsPerFrame * stream.Frequency * 4;
+        return approxUncompressedSizeBytes > ModAudio.AudioStreamingLimitBytes;
     }
 
     /// <summary>
-    /// Streams an audio clip from the disk.
+    /// Loads or streams an audio clip from disk.
+    /// If it's streamed, openedStream will have the resulting stream to keep alive.
+    /// The decision to stream / load is done based on a memory cutoff corresponding to 20 seconds of stereo audio @ 44100Hz.
+    /// If non-null, useStreamingIfTrue overrides this behaviour and streams if true, or loads in memory if false.
     /// </summary>
-    public static AudioClip StreamFromFile(string clipName, string path, float volumeModifier, out IAudioStream openedStream)
+    public static LoadResult CreateFromFile(string clipName, string path, float volumeModifier, bool? useStreaming = null)
     {
-        var stream = openedStream = GetStream(path);
+        var stream = GetStream(path);
         stream.VolumeModifier = volumeModifier;
 
-        return AudioClip.Create(clipName, stream.TotalFrames, stream.ChannelsPerFrame, stream.Frequency, true, stream.ReadSamples, stream.SetSamplePosition);
+        if (useStreaming == null)
+        {
+            long approxUncompressedSizeBytes = stream.TotalFrames * stream.ChannelsPerFrame * 4;
+            useStreaming = approxUncompressedSizeBytes > ModAudio.AudioStreamingLimitBytes;
+        }
+        
+        if (useStreaming.Value)
+        {
+            return new LoadResult()
+            {
+                ChannelsPerFrame = stream.ChannelsPerFrame,
+                Frequency = stream.Frequency,
+                TotalFrames = stream.TotalFrames,
+                OpenStream = stream
+            };
+        }
+        else
+        {
+            using var openedStream = stream;
+            
+            var totalSamples = stream.TotalFrames * stream.ChannelsPerFrame;
+
+            var buffer = new float[totalSamples];
+
+            stream.ReadSamples(buffer);
+            
+            return new LoadResult()
+            {
+                ChannelsPerFrame = stream.ChannelsPerFrame,
+                Frequency = stream.Frequency,
+                TotalFrames = stream.TotalFrames,
+                Samples = buffer
+            };
+        }
     }
 
     private static IAudioStream GetStream(string path)

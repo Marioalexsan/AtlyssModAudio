@@ -1,4 +1,5 @@
-﻿using BepInEx.Logging;
+﻿using System.Text.RegularExpressions;
+using BepInEx.Logging;
 using Unity.Profiling;
 using UnityEngine;
 
@@ -6,6 +7,7 @@ namespace Marioalexsan.ModAudio;
 
 public enum DebugMessageCategories
 {
+    All = -1,
     AudioPack,
     AudioSource,
     Script,
@@ -25,54 +27,44 @@ public class AudioDebugDisplay : MonoBehaviour
         public string Tags; // Comma-separated by convention
         public float ExtraParam1; // Custom data
         public bool ShouldDisplayCached; // Cached information about whenever this should render during this frame
-        public bool FilterChecked; // Whenever the filter has been applied to this already
     }
 
-    private static readonly List<MessageLog> _messages = new List<MessageLog>(16384);
+    // The actual capacity will be 9999 due to how the range is implemented; fixing this would overcomplicate the logic
+    // since we'd have to differentiate between a full and empty buffer
+    private static readonly MessageLog[] _circularBuffer = new MessageLog[10000];
+    private static int _bufferStart; // Inclusive
+    private static int _bufferEnd; // Exclusive
 
-    public static void LogPack(LogLevel level, string message, string tags = "")
-    {
-        _messages.Add(new()
-        {
-            Level = level,
-            Category = DebugMessageCategories.AudioPack,
-            Message = message,
-            Tags = tags
-        });
-    }
+    public static void LogPack(LogLevel level, string message, string tags = "audio-test.....")
+        => LogMessage(DebugMessageCategories.AudioPack, level, message, tags);
 
     public static void LogScript(LogLevel level, string message, string tags = "")
-    {
-        _messages.Add(new()
-        {
-            Level = level,
-            Category = DebugMessageCategories.Script,
-            Message = message,
-            Tags = tags
-        });
-    }
+        => LogMessage(DebugMessageCategories.Script, level, message, tags);
 
     public static void LogAudio(LogLevel level, string message, string tags = "", float extraParam1 = default)
-    {
-        _messages.Add(new()
-        {
-            Level = level,
-            Category = DebugMessageCategories.AudioSource,
-            Message = message,
-            Tags = tags,
-            ExtraParam1 = extraParam1
-        });
-    }
+        => LogMessage(DebugMessageCategories.AudioSource, level, message, tags, extraParam1);
 
     public static void LogEngine(LogLevel level, string message, string tags = "")
+        => LogMessage(DebugMessageCategories.Engine, level, message, tags);
+
+    private static void LogMessage(DebugMessageCategories category, LogLevel level, string message, string tags, float extraParam1 = default)
     {
-        _messages.Add(new()
+        var entry = new MessageLog()
         {
             Level = level,
-            Category = DebugMessageCategories.Engine,
+            Category = category,
             Message = message,
-            Tags = tags
-        });
+            Tags = tags,
+            ExtraParam1 = extraParam1,
+        };
+
+        entry.ShouldDisplayCached = ShouldDisplayLog(entry);
+        
+        _circularBuffer[_bufferEnd] = entry;
+        
+        _bufferEnd = (_bufferEnd + 1) % _circularBuffer.Length;
+        if (_bufferEnd == _bufferStart)
+            _bufferStart = (_bufferStart + 1) % _circularBuffer.Length;
     }
 
     public void OnGUI()
@@ -142,7 +134,7 @@ public class AudioDebugDisplay : MonoBehaviour
         if (_rowHeight < 0)
             _rowHeight = GUI.skin.label.CalcSize(new GUIContent("Text")).y;
 
-        _windowPos = GUILayout.Window(0, new Rect(_windowPos.position, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f)), (int windowId) =>
+        _windowPos = GUILayout.Window(0, new Rect(_windowPos.position, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f)), _ =>
         {
             _selectedTab = GUILayout.Toolbar(_selectedTab, _tabs);
 
@@ -162,16 +154,10 @@ public class AudioDebugDisplay : MonoBehaviour
     {
         _updateLogsMarker.Begin();
 
-        if (ModAudio.Plugin.DebugMenuButton.Value != KeyCode.None)
+        if (ModAudio.DebugMenuButton.Value != KeyCode.None)
         {
-            if (Input.GetKeyDown(ModAudio.Plugin.DebugMenuButton.Value))
+            if (Input.GetKeyDown(ModAudio.DebugMenuButton.Value))
                 _enabled = !_enabled;
-        }
-
-        if (_messages.Count >= 10000)
-        {
-            _messages.RemoveRange(0, 5000);
-            LogEngine(LogLevel.Warning, $"There are more than 10000 messages in the log! Removing oldest 5000 messages to reclaim memory.");
         }
 
         // No need to waste CPU cycles if we won't render this information
@@ -262,11 +248,33 @@ public class AudioDebugDisplay : MonoBehaviour
 
             _audioPackDetailsScrollView = GUILayout.BeginScrollView(_audioPackDetailsScrollView);
 
+            if (!string.IsNullOrWhiteSpace(pack.PackPath) && GUILayout.Button("Open pack location"))
+                Application.OpenURL(new Uri($"{pack.PackPath}").AbsoluteUri);   
+            
             GUILayout.Label($"Display name: {pack.Config.DisplayName}");
             GUILayout.Label($"ID: {pack.Config.Id}");
-            GUILayout.Label($"Path: {pack.PackPath}");
+            GUILayout.Label($"Path: {AudioPackLoader.AliasRootPath(pack.PackPath)}");
             GUILayout.Space(_rowHeight);
-            GUILayout.Label($"All flag values: {pack.Flags}");
+            
+            GUILayout.Label($"Route files:");
+            for (int i = 0; i < pack.ConfigFiles.Count; i++)
+                GUILayout.Label(AudioPackLoader.AliasRootPath(pack.ConfigFiles[i]));
+            
+            GUILayout.Space(_rowHeight);
+            
+            if (pack.ScriptFiles.Count > 0)
+            {
+                GUILayout.Label($"Script files:");
+                for (int i = 0; i < pack.ScriptFiles.Count; i++)
+                    GUILayout.Label(AudioPackLoader.AliasRootPath(pack.ScriptFiles[i]));
+            }
+            else
+            {
+                GUILayout.Label($"No script files loaded");
+            }
+            
+            GUILayout.Space(_rowHeight);
+            GUILayout.Label($"Pack flags: {pack.Flags}");
 
             if (pack.Flags.HasFlag(PackFlags.HasEncounteredErrors))
                 GUILayout.Label("This pack encountered errors!", _logError);
@@ -275,20 +283,11 @@ public class AudioDebugDisplay : MonoBehaviour
 
             GUILayout.Space(_rowHeight);
 
-            // TODO This is hacky; this should be reimplemented properly on the audio pack
-            GUILayout.Label($"Total custom clips: {pack.Config.CustomClips.Count}");
-            GUILayout.Label($"Clips streamed: {pack.OpenStreams.Count}");
-            GUILayout.Label($"Clips loaded in memory: {pack.ReadyClips.Count - pack.OpenStreams.Count}");
-            GUILayout.Label($"Clips waiting to be streamed: {pack.PendingClipsToStream.Count}");
-            GUILayout.Label($"Clips waiting to be loaded: {pack.PendingClipsToLoad.Count}");
-
-            GUILayout.Space(_rowHeight);
-
             GUILayout.Label($"Total routes: {pack.Config.Routes.Count}");
-
-            GUILayout.Space(_rowHeight);
-
-            GUILayout.Label($"Lua script loaded: {(pack.Script != null ? "True" : "False")}");
+            GUILayout.Label($"Total custom clips: {pack.Config.CustomClips.Count}");
+            GUILayout.Label($"  Currently streaming: {pack.CurrentStreamedClips}");
+            GUILayout.Label($"  Currently loaded in memory: {pack.CurrentInMemoryClips}");
+            GUILayout.Label($"Clips ready: {pack.ReadyAudio.Count}");
 
             GUILayout.EndScrollView();
         }
@@ -318,23 +317,21 @@ public class AudioDebugDisplay : MonoBehaviour
 
         UpdateCachedValue(ref _useDistanceFilterCached, _useDistanceFilter, ref filtersChanged);
         UpdateCachedValue(ref _distanceFilterCached, _distanceFilter, ref filtersChanged);
-        UpdateCachedValue(ref _showAudioPackMessagesCached, _showAudioPackMessages, ref filtersChanged);
-        UpdateCachedValue(ref _showAudioSourceMessagesCached, _showAudioSourceMessages, ref filtersChanged);
-        UpdateCachedValue(ref _showScriptMessagesCached, _showScriptMessages, ref filtersChanged);
-        UpdateCachedValue(ref _showEngineMessagesCached, _showEngineMessages, ref filtersChanged);
+        UpdateCachedValue(ref _categoryCached, _category, ref filtersChanged);
+        UpdateCachedValue(ref _subcategoryCached, _subcategory, ref filtersChanged);
         UpdateCachedValue(ref _latestMessagesOnlyCached, _latestMessagesOnly, ref filtersChanged);
         UpdateCachedValue(ref _showErrorAndWarnsOnlyCached, _showErrorAndWarnsOnly, ref filtersChanged);
-        UpdateCachedValue(ref _audioGroupFilterCached, _audioGroupFilter, ref filtersChanged);
         UpdateCachedValue(ref _filterModdedAudioCached, _filterModdedAudio, ref filtersChanged);
         UpdateCachedValue(ref _logIncludeFilterCached, _logIncludeFilter, ref filtersChanged);
+        UpdateCachedValue(ref _logIncludeFilterMatchWordCached, _logIncludeFilterMatchWord, ref filtersChanged);
 
         if (_shouldClearLogs)
         {
             _shouldClearLogs = false;
-            _messages.Clear();
+            _bufferStart = _bufferEnd;
         }
 
-        _totalMessages = 0;
+        _totalMessages = _bufferStart <= _bufferEnd ? _bufferEnd - _bufferStart : _circularBuffer.Length - _bufferStart - _bufferEnd;
         _totalErrors = 0;
         _totalWarnings = 0;
 
@@ -342,23 +339,21 @@ public class AudioDebugDisplay : MonoBehaviour
         _totalDisplayedErrors = 0;
         _totalDisplayedWarnings = 0;
 
-        for (int i = 0; i < _messages.Count; i++)
+        if (filtersChanged)
         {
-            var message = _messages[i];
-
-            bool shouldDisplay;
-
-            if (filtersChanged || !_messages[i].FilterChecked)
+            _logIncludeFilterRegexToUse = _logIncludeFilterMatchWordCached ? new Regex($"\\b{Regex.Escape(_logIncludeFilterCached)}\\b", RegexOptions.IgnoreCase) : null;
+            
+            for (int i = _bufferStart; i != _bufferEnd; i = (i + 1) % _circularBuffer.Length)
             {
-                shouldDisplay = ShouldDisplayLog(message);
-                _messages[i] = _messages[i] with { ShouldDisplayCached = shouldDisplay, FilterChecked = true };
+                var message = _circularBuffer[i];
+                _circularBuffer[i] = message with { ShouldDisplayCached = ShouldDisplayLog(message) };
             }
-            else
-            {
-                shouldDisplay = _messages[i].ShouldDisplayCached;
-            }
+        }
 
-            _totalMessages++;
+        for (int i = _bufferStart; i != _bufferEnd; i = (i + 1) % _circularBuffer.Length)
+        {
+            var message = _circularBuffer[i];
+            bool shouldDisplay = message.ShouldDisplayCached;
 
             if (shouldDisplay)
                 _totalDisplayedMessages++;
@@ -379,43 +374,34 @@ public class AudioDebugDisplay : MonoBehaviour
             }
         }
     }
-
-
+    
     private void RenderAudioLogs()
     {
         _renderLogsMarker.Begin();
 
         GUILayout.BeginHorizontal();
 
-        GUILayout.Label("Options:");
-
-        _latestMessagesOnly = GUILayout.Toggle(_latestMessagesOnly, "Auto scroll to latest");
-        _showErrorAndWarnsOnly = GUILayout.Toggle(_showErrorAndWarnsOnly, "Show only errors and warnings");
-        _filterModdedAudio = GUILayout.Toggle(_filterModdedAudio, "Show only custom audio");
-
-        GUILayout.FlexibleSpace();
-        GUILayout.EndHorizontal();
-
-        GUILayout.BeginHorizontal();
-
         GUILayout.Label("Categories:");
 
-        _showAudioPackMessages = GUILayout.Toggle(_showAudioPackMessages, "Audio Packs");
-        _showAudioSourceMessages = GUILayout.Toggle(_showAudioSourceMessages, "Audio Sources");
-        _showScriptMessages = GUILayout.Toggle(_showScriptMessages, "Scripts");
-        _showEngineMessages = GUILayout.Toggle(_showEngineMessages, "Engine");
+        if (GUILayout.Toggle(_category == DebugMessageCategories.All, "All"))
+            _category = DebugMessageCategories.All;
+
+        if (GUILayout.Toggle(_category == DebugMessageCategories.AudioPack, "Audio Packs"))
+            _category = DebugMessageCategories.AudioPack;
+
+        if (GUILayout.Toggle(_category == DebugMessageCategories.AudioSource, "Audio Sources"))
+            _category = DebugMessageCategories.AudioSource;
+
+        if (GUILayout.Toggle(_category == DebugMessageCategories.Script, "Scripts"))
+            _category = DebugMessageCategories.Script;
+
+        if (GUILayout.Toggle(_category == DebugMessageCategories.Engine, "Engine"))
+            _category = DebugMessageCategories.Engine;
 
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
 
-        GUILayout.BeginHorizontal();
-
-        GUILayout.Label("Search for text:", GUILayout.ExpandWidth(false));
-        _logIncludeFilter = GUILayout.TextField(_logIncludeFilter, 80, GUILayout.ExpandWidth(true));
-
-        GUILayout.EndHorizontal();
-
-        if (_showAudioSourceMessagesCached)
+        if (_category == DebugMessageCategories.AudioSource)
         {
             GUILayout.BeginHorizontal();
 
@@ -423,23 +409,23 @@ public class AudioDebugDisplay : MonoBehaviour
 
             // Note: the groups here have to match with what is added to the tags of logs *exactly*
 
-            if (GUILayout.Toggle(_audioGroupFilter.Length == 0, "All"))
-                _audioGroupFilter = "";
+            if (GUILayout.Toggle(_subcategory.Length == 0, "All"))
+                _subcategory = "";
 
-            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp ambience"), "Ambience"))
-                _audioGroupFilter = "AudGrp ambience";
+            if (GUILayout.Toggle(_subcategory.Equals("AudGrp ambience"), "Ambience"))
+                _subcategory = "AudGrp ambience";
 
-            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp game"), "Game"))
-                _audioGroupFilter = "AudGrp game";
+            if (GUILayout.Toggle(_subcategory.Equals("AudGrp game"), "Game"))
+                _subcategory = "AudGrp game";
 
-            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp gui"), "GUI"))
-                _audioGroupFilter = "AudGrp gui";
+            if (GUILayout.Toggle(_subcategory.Equals("AudGrp gui"), "GUI"))
+                _subcategory = "AudGrp gui";
 
-            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp music"), "Music"))
-                _audioGroupFilter = "AudGrp music";
+            if (GUILayout.Toggle(_subcategory.Equals("AudGrp music"), "Music"))
+                _subcategory = "AudGrp music";
 
-            if (GUILayout.Toggle(_audioGroupFilter.Equals("AudGrp voice"), "Voice"))
-                _audioGroupFilter = "AudGrp voice";
+            if (GUILayout.Toggle(_subcategory.Equals("AudGrp voice"), "Voice"))
+                _subcategory = "AudGrp voice";
 
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -451,9 +437,6 @@ public class AudioDebugDisplay : MonoBehaviour
 
             GUILayout.EndHorizontal();
         }
-
-        if (GUILayout.Button("Clear messages", GUILayout.ExpandWidth(false)))
-            _shouldClearLogs = true;
 
         var totalRowHeight = _rowHeight * _totalDisplayedMessages;
 
@@ -473,16 +456,19 @@ public class AudioDebugDisplay : MonoBehaviour
 
         GUILayout.Space(_rowHeight * _hiddenLogElementsBefore);
 
-        int cursor = 0;
+        int cursor = _bufferStart;
 
-        for (int i = 0; i < _hiddenLogElementsBefore + _visibleLogElements; i++)
+        for (int elementCount = 0; elementCount < _hiddenLogElementsBefore + _visibleLogElements; elementCount++)
         {
-            var log = _messages[cursor];
+            var log = _circularBuffer[cursor];
 
             while (!log.ShouldDisplayCached)
-                log = _messages[++cursor];
+            {
+                cursor = (cursor + 1) % _circularBuffer.Length;
+                log = _circularBuffer[cursor];
+            }
 
-            if (i >= _hiddenLogElementsBefore)
+            if (elementCount >= _hiddenLogElementsBefore)
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(MapLogLevelToLabel(log.Level), MapLogLevelToStyle(log.Level));
@@ -491,7 +477,7 @@ public class AudioDebugDisplay : MonoBehaviour
                 GUILayout.EndHorizontal();
             }
 
-            cursor++;
+            cursor = (cursor + 1) % _circularBuffer.Length;
         }
 
         if (_hiddenLogElementsAfter >= 1)
@@ -501,12 +487,27 @@ public class AudioDebugDisplay : MonoBehaviour
 
         if (Event.current.type == EventType.Repaint)
             _logScrollViewHeight = GUILayoutUtility.GetLastRect().height;
+        
+        GUILayout.BeginHorizontal();
+        
+        GUILayout.Label("Find:", GUILayout.ExpandWidth(false));
+        _logIncludeFilter = GUILayout.TextField(_logIncludeFilter, 80, GUILayout.ExpandWidth(true));
+        _logIncludeFilterMatchWord = GUILayout.Toggle(_logIncludeFilterMatchWord, "Match word", GUILayout.ExpandWidth(true));
+        
+        GUILayout.EndHorizontal();
 
         GUILayout.BeginHorizontal();
 
         GUILayout.Label($"Total: {_totalDisplayedMessages}/{_totalMessages}");
         GUILayout.Label($"Errors: {_totalDisplayedErrors}/{_totalErrors}");
         GUILayout.Label($"Warnings: {_totalDisplayedWarnings}/{_totalWarnings}");
+        
+        if (GUILayout.Button("Clear messages", GUILayout.ExpandWidth(false)))
+            _shouldClearLogs = true;
+
+        _latestMessagesOnly = GUILayout.Toggle(_latestMessagesOnly, "Follow log");
+        _showErrorAndWarnsOnly = GUILayout.Toggle(_showErrorAndWarnsOnly, "Issues only");
+        _filterModdedAudio = GUILayout.Toggle(_filterModdedAudio, "Custom audio only");
 
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
@@ -515,7 +516,7 @@ public class AudioDebugDisplay : MonoBehaviour
         _renderLogsMarker.End();
     }
 
-    private bool ShouldDisplayLog(MessageLog log)
+    private static bool ShouldDisplayLog(MessageLog log)
     {
         // Note: this method is in the hot path for anything related to logging
         // It's important to implement things efficiently in here - this includes mundane stuff such as string comparisons
@@ -523,14 +524,7 @@ public class AudioDebugDisplay : MonoBehaviour
         if (log.Level != LogLevel.Error && log.Level != LogLevel.Warning && _showErrorAndWarnsOnlyCached)
             return false;
 
-        bool shouldShowCategory = log.Category switch
-        {
-            DebugMessageCategories.AudioPack => _showAudioPackMessagesCached,
-            DebugMessageCategories.AudioSource => _showAudioSourceMessagesCached,
-            DebugMessageCategories.Script => _showScriptMessagesCached,
-            DebugMessageCategories.Engine => _showEngineMessagesCached,
-            _ => false
-        };
+        bool shouldShowCategory = _categoryCached == DebugMessageCategories.All || log.Category == _categoryCached;
 
         if (!shouldShowCategory)
             return false;
@@ -540,15 +534,26 @@ public class AudioDebugDisplay : MonoBehaviour
 
         if (log.Category == DebugMessageCategories.AudioSource)
         {
-            if (_audioGroupFilterCached != "" && !log.Tags.Contains(_audioGroupFilterCached))
+            if (_subcategoryCached != "" && !log.Tags.Contains(_subcategoryCached))
                 return false;
 
             if (_filterModdedAudioCached && !log.Tags.Contains("Routed") && !log.Tags.Contains("Overlay"))
                 return false;
         }
 
-        if (_logIncludeFilterCached != "" && !log.Message.Contains(_logIncludeFilterCached, StringComparison.InvariantCultureIgnoreCase))
-            return false;
+        if (_logIncludeFilterCached != "")
+        {
+            if (!_logIncludeFilterMatchWordCached)
+            {
+                if (!log.Message.Contains(_logIncludeFilterCached, StringComparison.InvariantCultureIgnoreCase))
+                    return false;
+            }
+            else
+            {
+                if (_logIncludeFilterRegexToUse == null || !_logIncludeFilterRegexToUse.Match(log.Message).Success)
+                    return false;
+            }
+        }
 
         return true;
     }
@@ -558,8 +563,8 @@ public class AudioDebugDisplay : MonoBehaviour
         LogLevel.Info => "INFO ",
         LogLevel.Debug => "DEBUG",
         LogLevel.Warning => "WARN ",
-        LogLevel.Error => "ERROR",
-        LogLevel.Fatal => "FATAL",
+        LogLevel.Error => "ERROR ",
+        LogLevel.Fatal => "FATAL ",
         _ => "OTHER"
     };
 
@@ -574,7 +579,7 @@ public class AudioDebugDisplay : MonoBehaviour
     private static Rect _windowPos = new Rect(Screen.width * 0.1f, Screen.height * 0.1f, Screen.width * 0.5f, Screen.height * 0.5f);
 
     private readonly string[] _tabs = ["Audio logs", "Audio packs", "Audio sources"]; // TODO: Audio sources tab
-    private static int _selectedTab = 0;
+    private static int _selectedTab;
 
     // Audio Packs start
 
@@ -604,50 +609,46 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _hiddenLogElementsBefore = int.MinValue;
     private static int _hiddenLogElementsAfter = int.MinValue;
 
-    private static bool _enabled = false;
+    private static bool _enabled;
 
     private static float _distanceFilterCached = 120;
     private static float _distanceFilter = 120;
 
-    private static bool _useDistanceFilterCached = false;
-    private static bool _useDistanceFilter = false;
+    private static bool _useDistanceFilterCached;
+    private static bool _useDistanceFilter;
 
-    private static bool _showAudioPackMessagesCached = true;
-    private static bool _showAudioPackMessages = true;
+    private static DebugMessageCategories _categoryCached = DebugMessageCategories.All;
+    private static DebugMessageCategories _category = DebugMessageCategories.All;
 
-    private static bool _showAudioSourceMessagesCached = true;
-    private static bool _showAudioSourceMessages = true;
+    private static string _subcategoryCached = "";
+    private static string _subcategory = "";
 
-    private static bool _showScriptMessagesCached = true;
-    private static bool _showScriptMessages = true;
+    private static bool _showErrorAndWarnsOnlyCached;
+    private static bool _showErrorAndWarnsOnly;
 
-    private static bool _showEngineMessagesCached = true;
-    private static bool _showEngineMessages = true;
+    private static bool _latestMessagesOnlyCached = true;
+    private static bool _latestMessagesOnly = true;
 
-    private static bool _showErrorAndWarnsOnlyCached = false;
-    private static bool _showErrorAndWarnsOnly = false;
+    private static bool _filterModdedAudioCached;
+    private static bool _filterModdedAudio;
 
-    private static bool _latestMessagesOnlyCached = false;
-    private static bool _latestMessagesOnly = false;
-
-    private static bool _filterModdedAudioCached = false;
-    private static bool _filterModdedAudio = false;
-
-    private static string _audioGroupFilterCached = "";
-    private static string _audioGroupFilter = "";
-
-    private static string _logIncludeFilter = "";
     private static string _logIncludeFilterCached = "";
+    private static string _logIncludeFilter = "";
 
-    private static bool _shouldClearLogs = false;
+    private static Regex? _logIncludeFilterRegexToUse;
 
-    private static int _totalErrors = 0;
-    private static int _totalWarnings = 0;
-    private static int _totalMessages = 0;
+    private static bool _logIncludeFilterMatchWordCached;
+    private static bool _logIncludeFilterMatchWord;
 
-    private static int _totalDisplayedErrors = 0;
-    private static int _totalDisplayedWarnings = 0;
-    private static int _totalDisplayedMessages = 0;
+    private static bool _shouldClearLogs;
+
+    private static int _totalErrors;
+    private static int _totalWarnings;
+    private static int _totalMessages;
+
+    private static int _totalDisplayedErrors;
+    private static int _totalDisplayedWarnings;
+    private static int _totalDisplayedMessages;
 
     private static readonly ProfilerMarker _updateLogsMarker = new ProfilerMarker("ModAudio debug menu update");
     private static readonly ProfilerMarker _renderLogsMarker = new ProfilerMarker("ModAudio debug menu render");

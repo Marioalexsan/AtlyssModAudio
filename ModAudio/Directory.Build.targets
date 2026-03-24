@@ -1,3 +1,8 @@
+<!-- 
+
+This defines common utilities for building and packaging mods
+
+-->
 <Project>
     <!-- Adapted from https://github.com/BepInEx/BepInEx.Templates/blob/master/BepInEx.PluginInfoProps/BepInEx.PluginInfoProps.props -->
     <Target Name="AddModInfo" BeforeTargets="BeforeCompile;CoreCompile" Inputs="$(MSBuildAllProjects)" Outputs="$(IntermediateOutputPath)GeneratedModInfo.cs">
@@ -31,26 +36,22 @@ namespace $(RootNamespace)
 
     <!-- Adapted from https://github.com/RobynLlama/AtlyssBIETemplate/blob/main/content/AtlyssBepinExTemplate/Config.Build.user.props.template -->
     <Target Name="ThunderstoreStageFiles" AfterTargets="Build" Condition="'$(CreateThunderstorePackage)' == 'true'">
+        <ItemGroup>
+            <ThunderstoreFile Condition="'%(ThunderstoreFile.FromBuild)' == 'true'">
+                <SourcePath>$(OutputPath)</SourcePath>
+            </ThunderstoreFile>
+            <ThunderstoreFile Condition="'%(ThunderstoreFile.FromBuild)' != 'true'">
+                <SourcePath>$(ProjectDir)</SourcePath>
+            </ThunderstoreFile>
+        </ItemGroup>
         <Message Text="Staging files for Thunderstore in $(OutputPath)_ThunderstoreBuild" Importance="High" />
         <!-- Clean up previous staged files -->
         <RemoveDir Directories="$(OutputPath)_ThunderstoreBuild/" />
-        <!-- Assemblies included from build files -->
+        <!-- Add stuff included from ThunderstoreFile -->
         <Copy
-            SourceFiles="@(ThunderstoreAssemblyInclude->'$(OutputPath)%(Identity)')"
-            DestinationFiles="@(ThunderstoreAssemblyInclude->'$(OutputPath)_ThunderstoreBuild/plugins/%(Identity)')"
+            SourceFiles="@(ThunderstoreFile->'%(SourcePath)%(Identity)')"
+            DestinationFiles="@(ThunderstoreFile->'$(OutputPath)_ThunderstoreBuild/%(Folder)/%(Filename)%(Extension)')"
             ContinueOnError="true" />
-        <!-- README.md -->
-        <Copy
-            SourceFiles="$(ProjectDir)_Thunderstore/README.md"
-            DestinationFiles="$(OutputPath)_ThunderstoreBuild/README.md" />
-        <!-- CHANGELOG.md -->
-        <Copy
-            SourceFiles="$(ProjectDir)_Thunderstore/CHANGELOG.md"
-            DestinationFiles="$(OutputPath)_ThunderstoreBuild/CHANGELOG.md" />
-        <!-- icon.png -->
-        <Copy
-            SourceFiles="$(ProjectDir)_Thunderstore/icon.png"
-            DestinationFiles="$(OutputPath)_ThunderstoreBuild/icon.png" />
     </Target>
 
     <Target Name="ThunderstoreMakeManifest" AfterTargets="ThunderstoreStageFiles" Inputs="$(MSBuildAllProjects)" Outputs="$(OutputPath)_ThunderstoreBuild/manifest.json" Condition="'$(CreateThunderstorePackage)' == 'true'">
@@ -81,7 +82,7 @@ namespace $(RootNamespace)
         <MakeDir Directories="$(ProjectDir)_ThunderstoreBuild" ContinueOnError="true" />
         <Delete Files="$(ProjectDir)_ThunderstoreBuild/$(ThunderstoreTeamName)-$(ThunderstorePackageName)-$(Version).zip" TreatErrorsAsWarnings="true"/>
         <ZipDirectory
-            SourceDirectory="$(OutputPath)_ThunderstoreBuild"
-            DestinationFile="$(ProjectDir)_ThunderstoreBuild/$(ThunderstoreTeamName)-$(ThunderstorePackageName)-$(Version).zip" />
+                SourceDirectory="$(OutputPath)_ThunderstoreBuild"
+                DestinationFile="$(ProjectDir)_ThunderstoreBuild/$(ThunderstoreTeamName)-$(ThunderstorePackageName)-$(Version).zip" />
     </Target>
 </Project>

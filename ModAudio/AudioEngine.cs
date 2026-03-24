@@ -1,7 +1,10 @@
-﻿using BepInEx.Logging;
+﻿using System.Runtime.CompilerServices;
+using BepInEx;
+using BepInEx.Logging;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
 using Marioalexsan.ModAudio.Scripting.Data;
+using Newtonsoft.Json;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Audio;
@@ -29,6 +32,7 @@ internal static class AudioEngine
 
     public const string DefaultClipKeyword = "___default___";
     public const string EmptyClipKeyword = "___nothing___";
+    public const string DisableClipKeyword = "___disable___";
     public const string ErrorClipKeyword = "!!! error !!!";
 
     public const string TargetGroupAll = "all";
@@ -43,45 +47,96 @@ internal static class AudioEngine
     public static readonly HashSet<ModAudioSource> TrackedOneShots = [];
 
     public static List<AudioPack> AudioPacks { get; } = [];
+    public static List<ModpackOverride> ModpackOverrides { get; } = [];
 
     public static Dictionary<string, AudioClip> LoadedVanillaClips = [];
-    public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
 
     private static DateTime LastSourceFetch = DateTime.Now;
 
+    internal static ModAudioGame Game = null!;
+
     // Temporary data for routing
     private static readonly Dictionary<Route, TargetGroupData> CachedRoutingTargetGroupData = [];
+    
+    // Setting this too low might cause it to fail for playOnAwake activeSources
+    // This is due to the detection method in Update(), which relies on scanning audio activeSources every frame
+    // This is why we need to use a minimum size (a few game frames at least).
 
-    private static AudioClip EmptyClip
+    private const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
+    
+    public static bool IsSpecialClip(string name)
     {
-        get
-        {
-            // Setting this too low might cause it to fail for playOnAwake activeSources
-            // This is due to the detection method in Update(), which relies on scanning audio activeSources every frame
-            // This is why we need to use a minimum size (a few game frames at least).
-
-            const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
-            return _emptyClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
-        }
+        return name == DefaultClipKeyword || name == EmptyClipKeyword || name == ErrorClipKeyword || name == DisableClipKeyword;
     }
+
+    internal static AudioClip EmptyClip => _emptyClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
     private static AudioClip? _emptyClip;
+
+    // Special clip similar to ___nothing___ that has special meaning in some contexts
+    internal static AudioClip DisableClip => _disableClip ??= AudioClipLoader.GenerateEmptyClip(DisableClipKeyword, EmptyClipSizeInSamples);
+    private static AudioClip? _disableClip;
 
     // This is not an "actual" clip, but should be used to
     // 1. Avoid null references, and
     // 2. Indicate that an error state was encountered (clip failed to load, etc.)
-    private static AudioClip ErrorClip
-    {
-        get
-        {
-            const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
-            return _errorClip ??= AudioClipLoader.GenerateEmptyClip(ErrorClipKeyword, EmptyClipSizeInSamples);
-        }
-    }
+    internal static AudioClip ErrorClip => _errorClip ??= AudioClipLoader.GenerateEmptyClip(ErrorClipKeyword, EmptyClipSizeInSamples);
     private static AudioClip? _errorClip;
 
-    public static bool IsVolumeLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.VolumeLock) ?? false;
-    public static bool IsPitchLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.PitchLock) ?? false;
-    public static bool IsLoopLocked(AudioSource source) => GetModAudioSourceIfExists(source)?.HasFlag(AudioFlags.LoopLock) ?? false;
+    internal static bool SetVolumeCallback(AudioSource source, ref float value)
+    {
+        var modSource = GetModAudioSourceIfExists(source);
+
+        if (modSource == null)
+            return true;
+
+        if (modSource.HasFlag(AudioFlags.VolumeLock))
+            return false;
+
+        modSource.LastUnproxiedVolume = value;
+        value *= modSource.ProxyVolumeModifier;
+        
+        return true;
+    }
+    
+    internal static bool SetPitchCallback(AudioSource source, ref float value)
+    {
+        var modSource = GetModAudioSourceIfExists(source);
+
+        if (modSource == null)
+            return true;
+
+        if (modSource.HasFlag(AudioFlags.PitchLock))
+            return false;
+
+        modSource.LastUnproxiedPitch = value;
+        value *= modSource.ProxyPitchModifier;
+        
+        return true;
+    }
+
+    internal static void GetVolumeCallback(AudioSource source, ref float value)
+    {
+        var modSource = GetModAudioSourceIfExists(source);
+
+        if (modSource == null)
+            return;
+
+        // Dividing by the multiplier to get the original value is not possible in the case where it's 0
+        // So let's return the last known value instead
+        value = modSource.LastUnproxiedVolume;
+    }
+
+    internal static void GetPitchCallback(AudioSource source, ref float value)
+    {
+        var modSource = GetModAudioSourceIfExists(source);
+
+        if (modSource == null)
+            return;
+
+        // Dividing by the multiplier to get the original value is not possible in the case where it's 0
+        // So let's return the last known value instead
+        value = modSource.LastUnproxiedPitch;
+    }
 
     public static void HardReload() => Reload(hardReload: true);
 
@@ -100,6 +155,7 @@ internal static class AudioEngine
             foreach (var pack in AudioPacks)
             {
                 // TODO: This stinks
+                pack.ScriptFiles.Clear();
                 AudioPackLoader.LoadScriptData(pack.PackPath, pack);
                 AudioPackLoader.FinalizePack(pack);
             }
@@ -114,25 +170,108 @@ internal static class AudioEngine
         }
     }
 
+    private static void RunGarbageCollection()
+    {
+        Logging.LogDebug("Running garbage collection for custom audio");
+        
+        var canCollectAudioBefore = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+        
+        foreach (var pack in AudioPacks)
+        {
+            var readyAudio = ForeachCache<KeyValuePair<string, AudioPack.AudioData>>.CacheFrom(pack.ReadyAudio);
+
+            for (int i = 0; i < readyAudio.Length; i++)
+            {
+                var audioData = readyAudio[i];
+                
+                if (!audioData.Value.Clip || IsSpecialClip(audioData.Value.Clip.name))
+                    continue; // These shouldn't be collected
+                
+                if (audioData.Value.LastUsed < canCollectAudioBefore)
+                {
+                    RunGarbageCollection(pack, audioData.Key);
+                }
+            }
+        }
+    }
+
+    private static void RunGarbageCollection(AudioPack pack, string clipName)
+    {
+        // This logic relies on ModAudio explicitly tracking one shot audio
+        // Without said tracking, it would be hard to tell whenever audio is actually in use
+        var audioData = pack.ReadyAudio[clipName];
+        var clip = audioData.Clip;
+
+        bool inUse = false;
+
+        foreach (var source in TrackedSources)
+        {
+            if (!source.Key)
+                continue;
+
+            if (source.Key.clip == clip)
+            {
+                inUse = true;
+                break;
+            }
+        }
+
+        if (inUse)
+        {
+            // Reset its last used time so that we avoid checking it for a while
+            pack.ReadyAudio[clipName] = audioData with { LastUsed = DateTime.UtcNow };
+            return;
+        }
+        
+        // No uses found, clean it up
+        
+        Logging.LogDebug($"Garbage collecting clip {clipName} from pack {pack.Config.Id}");
+
+        UnityEngine.Object.Destroy(clip);
+        
+        if (audioData.Stream != null)
+        {
+            audioData.Stream.Dispose();
+            pack.CurrentStreamedClips--;
+        }
+        else
+        {
+            pack.CurrentInMemoryClips--;
+        }
+
+        pack.ReadyAudio.Remove(clipName);
+    }
+
+    /// <summary>
+    /// Soft reload resets game / mod audio state, hard reload also reloads packs.
+    /// </summary>
     private static void Reload(bool hardReload)
     {
         Watch.Restart();
+        
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (AudioEngine.Game == null)
+        {
+            AudioEngine.Game = new ModAudioGame();
+
+            const string IssuesLink = "https://github.com/Marioalexsan/AtlyssModAudio/issues/";
+            
+            Logging.LogWarning($"Hey there! It seems like you're running ModAudio on \"{Application.productName}\".");
+            Logging.LogWarning($"This game has experimental support at best. Lua scripting might be limited, and no game specific features will be available.");
+            Logging.LogWarning($"If you find any issues, bugs, or have constructive feedback, please report them at {IssuesLink}.");
+        }
 
         try
         {
-            Logging.LogInfo("Reloading engine! this might take a while...");
+            Logging.LogInfo("Reloading engine! This might take a while...");
 
             // Reset internal state
-            MapInstance_Handle_AudioSettings.ForceCombatMusic = false;
+            Game.OnReload();
 
             if (hardReload)
             {
                 Logging.LogInfo("Clearing loaded vanilla clips...");
                 LoadedVanillaClips.Clear();
-
-                LoadedMixerGroups.Clear();
-
-                LoadedMixerGroups = SettingsManager._current._masterMixer.FindMatchingGroups("").ToDictionary(x => x.name.ToLower());
             }
 
             // I like cleaning audio sources
@@ -183,6 +322,37 @@ internal static class AudioEngine
 
             if (hardReload)
             {
+                Logging.LogInfo("Reloading mod pack overrides...");
+                
+                ModpackOverrides.Clear();
+
+                var searchPaths = new Queue<string>(Directory.GetDirectories(Paths.PluginPath));
+
+                while (searchPaths.Count > 0)
+                {
+                    var folder = searchPaths.Dequeue();
+
+                    foreach (var innerFolder in Directory.GetDirectories(Path.Combine(Paths.PluginPath, folder)))
+                        searchPaths.Enqueue(Path.Combine(folder, innerFolder));
+
+                    var modpackOverridePath = Path.Combine(Paths.PluginPath, folder, "modaudio.modpack_overrides.json");
+
+                    if (File.Exists(modpackOverridePath))
+                    {
+                        try
+                        {
+                            var overrides = JsonConvert.DeserializeObject<ModpackOverride[]>(File.ReadAllText(modpackOverridePath)) ?? throw new NullReferenceException("Modpack override deserialized to null!");
+                            ModpackOverrides.AddRange(overrides);
+                            Logging.LogDebug($"Loaded modpack overrides from {modpackOverridePath}!");
+                        }
+                        catch (Exception e)
+                        {
+                            Logging.LogWarning($"Couldn't load modpack overrides from {modpackOverridePath}!");
+                            Logging.LogWarning(e.ToString());
+                        }
+                    }
+                }
+                
                 Logging.LogInfo("Reloading audio packs...");
 
                 // Clean up packs
@@ -191,24 +361,25 @@ internal static class AudioEngine
 
                 AudioPacks.Clear();
                 AudioPacks.AddRange(AudioPackLoader.LoadAudioPacks());
-                ModAudio.Plugin.InitializePackConfiguration(); // TODO I wish ModAudio plugin ref wouldn't be here
+                ModAudio.InitializePackConfiguration(); // TODO I wish ModAudio plugin ref wouldn't be here
             }
 
             Logging.LogInfo("Preloading audio data...");
             foreach (var pack in AudioPacks)
             {
-                if (pack.HasFlag(PackFlags.Enabled) && pack.PendingClipsToLoad.Count > 0)
-                {
-                    // If a selectedPack is enabled, we should preload all of the in-memory clips
-                    // Opening a ton of streams at the start is not great though, so those remain on-demand
-
-                    var clipsToPreload = pack.PendingClipsToLoad.Keys.ToArray();
-
-                    foreach (var clip in clipsToPreload)
-                    {
-                        _ = pack.TryGetReadyClip(clip, out _);
-                    }
-                }
+                // TODO: Solve preloading small audio files
+                // if (pack.HasFlag(PackFlags.Enabled) && pack.ClipsToPreload.Count > 0)
+                // {
+                //     // If a selectedPack is enabled, we should preload all of the in-memory clips
+                //     // Opening a ton of streams at the start is not great though, so those remain on-demand
+                //
+                //     var clipsToPreload = pack.ClipsToPreload.ToArray();
+                //
+                //     foreach (var clip in clipsToPreload)
+                //     {
+                //         _ = pack.LoadClip(clip, out _);
+                //     }
+                // }
             }
 
             Logging.LogInfo("Restarting audio sources...");
@@ -220,6 +391,9 @@ internal static class AudioEngine
                 if (wasPlayingPreviously[audio])
                     audio.Play();
             }
+        
+            // Reset internal state after full reload
+            Game.PostReload();
         }
         catch (Exception e)
         {
@@ -232,14 +406,33 @@ internal static class AudioEngine
         Logging.LogInfo($"Done with reload! Reload took {Watch.ElapsedMilliseconds} milliseconds.");
     }
 
+    private static DateTime LastGarbageCollection = DateTime.UtcNow;
+
     public static void Update()
     {
-        if (!ModAudio.Plugin.CurrentlyEnabled)
+        if (!ModAudio.CurrentlyEnabled)
             return;
 
         try
         {
-            ModAudioScript.TriggerNewFrame();
+            AudioEngine.Game.OnUpdate();
+
+            if (LastGarbageCollection + TimeSpan.FromSeconds(35) < DateTime.UtcNow)
+            {
+                LastGarbageCollection = DateTime.UtcNow;
+                RunGarbageCollection();
+            }
+            
+            // Handle audio preloading
+            for (int i = 0; i < AudioPacks.Count; i++)
+            {
+                var pack = AudioPacks[i];
+
+                if (!pack.HasFlag(PackFlags.Enabled))
+                    continue;
+                
+                pack.TryHandleNextPreload();
+            }
 
             // Run update scripts first
             for (int i = 0; i < AudioPacks.Count; i++)
@@ -304,7 +497,7 @@ internal static class AudioEngine
         // It's not really possible to detect them otherwise; you don't get any notifications via hooks for those.
         // Note that audio that's played via Play() and PlayOneShot() is automatically tracked when played, so this doesn't affect those sources
 
-        var detectionSpeed = ModAudio.Plugin.SourceDetectionRate.Value switch
+        var detectionSpeed = ModAudio.SourceDetectionRate.Value switch
         {
             SourceDetectionRate.Realtime => TimeSpan.Zero,
             SourceDetectionRate.Fast => TimeSpan.FromMilliseconds(100),
@@ -484,7 +677,7 @@ internal static class AudioEngine
         return null;
     }
 
-    private static ModAudioSource GetOrCreateModAudioSource(AudioSource source)
+    internal static ModAudioSource GetOrCreateModAudioSource(AudioSource source)
     {
         if (TrackedSources.TryGetValue(source, out var state))
             return state;
@@ -497,7 +690,9 @@ internal static class AudioEngine
                 Pitch = source.pitch,
                 Loop = source.loop,
                 Volume = source.volume
-            }
+            },
+            LastUnproxiedVolume = source.volume,
+            LastUnproxiedPitch = source.pitch
         });
 
         if (state.Audio.playOnAwake)
@@ -507,7 +702,7 @@ internal static class AudioEngine
         return state;
     }
 
-    private static ModAudioSource CreateOneShotFromSource(ModAudioSource state)
+    private static ModAudioSource CreateOneShotFromSource(ModAudioSource state, AudioClip oneShotClip)
     {
         GameObject targetObject = state.Audio.gameObject;
 
@@ -542,23 +737,23 @@ internal static class AudioEngine
 
         TrackedOneShots.Add(createdState); // Also track these separately for performance reasons
 
+        createdState.Audio.clip = oneShotClip;
+        createdState.InitialState.Clip = oneShotClip;
+
         return createdState;
     }
 
     public static bool OneShotClipPlayed(AudioClip clip, AudioSource source, float volumeScale)
     {
-        if (!ModAudio.Plugin.CurrentlyEnabled)
+        if (!ModAudio.CurrentlyEnabled)
             return true;
 
         try
         {
             // Move to a dedicated audio source for better control. Note: This is likely overkill and might mess with other mods?
 
-            var oneShot = CreateOneShotFromSource(GetOrCreateModAudioSource(source));
+            var oneShot = CreateOneShotFromSource(GetOrCreateModAudioSource(source), clip);
             oneShot.Audio.volume *= volumeScale;
-            oneShot.Audio.clip = clip;
-
-            oneShot.InitialState.Clip = oneShot.Audio.clip;
             oneShot.InitialState.Volume = oneShot.Audio.volume;
 
             oneShot.Audio.Play();
@@ -581,7 +776,7 @@ internal static class AudioEngine
 
     public static bool AudioPlayed(AudioSource source)
     {
-        if (!ModAudio.Plugin.CurrentlyEnabled)
+        if (!ModAudio.CurrentlyEnabled)
             return true;
 
         try
@@ -621,7 +816,7 @@ internal static class AudioEngine
 
     public static bool AudioStopped(AudioSource source, bool stopOneShots)
     {
-        if (!ModAudio.Plugin.CurrentlyEnabled)
+        if (!ModAudio.CurrentlyEnabled)
             return true;
 
         try
@@ -695,7 +890,10 @@ internal static class AudioEngine
         if (!CachedRoutingTargetGroupData.TryGetValue(route, out var routeData))
         {
             _executeTargetGroups.Begin();
-            routeData = new TargetGroupData(source);
+            routeData = new TargetGroupData()
+            {
+                Source = source
+            };
             pack.Script?.ExecuteTargetGroup(route, routeData);
             _executeTargetGroups.End();
             CachedRoutingTargetGroupData[route] = routeData;
@@ -704,17 +902,53 @@ internal static class AudioEngine
         return routeData;
     }
 
-    private static bool MatchesSource(AudioStepState state, Route route)
+    private static bool MatchesSource(ModAudioSource source, AudioStepState state, Route route)
     {
         var originalClipName = state.Clip?.name;
 
         if (originalClipName == null)
             return false;
 
-        for (int i = 0; i < route.OriginalClips.Count; i++)
-            if (route.OriginalClips[i] == originalClipName)
-                return true;
+        if (route.MapNameCondition.Count > 0)
+        {
+            bool matchesMap = false;
+            string? currentMap = AudioEngine.Game.Specialized_GetMapName();
+            
+            for (int i = 0; i < route.MapNameCondition.Count; i++)
+            {
+                var mapName = route.MapNameCondition[i];
 
+                if (string.IsNullOrWhiteSpace(mapName))
+                    continue;
+                
+                if (currentMap == null && mapName == "___nomap___")
+                {
+                    matchesMap = true;
+                    break;
+                }
+                
+                if (currentMap != null && mapName == currentMap)
+                {
+                    matchesMap = true;
+                    break;
+                }
+            }
+
+            if (!matchesMap)
+                return false;
+        }
+        
+        for (int i = 0; i < route.OriginalClips.Count; i++)
+        {
+            var originalClip = route.OriginalClips[i];
+
+            if (AudioEngine.Game.MatchesAlias(source, originalClip))
+                return true;
+                
+            if (originalClip == originalClipName)
+                return true;
+        }
+        
         return false;
     }
 
@@ -723,8 +957,9 @@ internal static class AudioEngine
     /// If an audio source was routed previously, it is restored to its original state before routing, effectively applying a new selectedRoute.
     /// </summary>
     /// <param name="source">The audio source to selectedRoute</param>
+    /// <param name="reuseOldRoutesIfPossible">Reuse previously exiting routes if they still apply somewhat?</param>
     /// <returns>True if the source was rerouted or modified, false otherwise (for example when there are no routes defined)</returns>
-    private static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible)
+    internal static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible)
     {
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false; // Do not apply changes
@@ -750,18 +985,18 @@ internal static class AudioEngine
 
             var stateBeforeRouting = source.AppliedState;
 
-            if (!ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null))
-                break;
-
-            var routeData = source.GetRoute(currentChainRoutes - 1);
+            var replacementApplied = ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null);
 
             if (source.HasFlag(AudioFlags.HasEncounteredErrors))
                 break; // Stop further routing or overlays
 
-            PlayOverlays(source, stateBeforeRouting, routeData.Route);
+            PlayOverlays(source, stateBeforeRouting, source.LatestRoute?.Route);
 
-            if (routeData.SelectedClip == EmptyClip)
-                break; // Can't route 
+            if (!replacementApplied)
+                break;
+
+            if (source.LatestRoute?.SelectedClip == EmptyClip)
+                break; // Can't route this any further
 
             wasRouted = true;
 
@@ -783,15 +1018,44 @@ internal static class AudioEngine
 
     private static void PlayOverlay(ModAudioSource source, AudioPack pack, Route route)
     {
-        var randomSelection = Utils.SelectRandomWeighted(RNG, route.OverlayClips);
+        List<ClipSelection> groupOverlays = [];
+        
+        var routeApi = GetCachedTargetGroup(source, pack, route);
 
-        if (randomSelection.Name == EmptyClipKeyword)
+        for (int i = 0; i < route.OverlayClips.Count; i++)
+        {
+            var overlay = route.OverlayClips[i];
+
+            if (routeApi.TargetGroup == TargetGroupAll || overlay.Group == routeApi.TargetGroup)
+                groupOverlays.Add(overlay);
+        }
+
+        if (groupOverlays.Count == 0)
+            return;
+        
+        var randomSelection = Utils.SelectRandomWeighted(RNG, groupOverlays);
+
+        if (randomSelection.Name == EmptyClipKeyword || randomSelection.Name == DisableClipKeyword)
             return;
 
-        if (pack.TryGetReadyClip(randomSelection.Name, out var selectedClip))
+        AudioClip? destinationClip;
+        
+        if (randomSelection.Name.StartsWith("<atlyss>")) // For backwards compatibility
         {
-            var oneShot = CreateOneShotFromSource(source);
-            oneShot.Audio.clip = selectedClip;
+            destinationClip = LoadVanillaClip(randomSelection.Name["<atlyss>".Length..]);
+        }
+        else if (randomSelection.Name.StartsWith("<game>"))
+        {
+            destinationClip = LoadVanillaClip(randomSelection.Name["<game>".Length..]);
+        }
+        else
+        {
+            pack.LoadClip(randomSelection.Name, out destinationClip);
+        }
+
+        if (destinationClip != null)
+        {
+            var oneShot = CreateOneShotFromSource(source, destinationClip);
 
             oneShot.Audio.volume = randomSelection.Volume;
             oneShot.Audio.pitch = randomSelection.Pitch;
@@ -854,7 +1118,7 @@ internal static class AudioEngine
                 if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
                     continue;
 
-                if (!(route.OverlayClips.Count > 0 && MatchesSource(stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || replacementRoute == route)))
+                if (!(route.OverlayClips.Count > 0 && MatchesSource(source, stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || route.ReplacementClips.Count == 0 || replacementRoute == route)))
                     continue;
 
                 var routeApi = GetCachedTargetGroup(source, pack, route);
@@ -876,13 +1140,15 @@ internal static class AudioEngine
     {
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false;
-
-
+        
         static void AddReplacementIfEligible(ModAudioSource source, AudioPack pack, Route route, List<(AudioPack Pack, Route Route)> replacements)
         {
-            if (!MatchesSource(source.AppliedState, route))
+            if (route.ReplacementClips.Count == 0)
+                return; // Nothing to do here!
+            
+            if (!MatchesSource(source, source.AppliedState, route))
                 return;
-
+            
             bool isAlreadyPresentInChain = false;
 
             // Disallow selecting routes that are already present in the chain
@@ -1008,27 +1274,17 @@ internal static class AudioEngine
             {
                 destinationClip = EmptyClip;
             }
+            else if (randomSelection.Name == DisableClipKeyword)
+            {
+                destinationClip = DisableClip;
+            }
             else if (randomSelection.Name.StartsWith("<atlyss>"))
             {
-                // Try to load a vanilla clip
-                var possibleName = randomSelection.Name["<atlyss>".Length..];
-
-                if (!LoadedVanillaClips.TryGetValue(possibleName, out destinationClip) || destinationClip == null)
-                {
-                    if (VanillaClips.NameToResourcePath.TryGetValue(possibleName, out var path))
-                    {
-                        destinationClip = Resources.Load<AudioClip>(path);
-
-                        if (destinationClip)
-                        {
-                            LoadedVanillaClips[possibleName] = destinationClip;
-                        }
-                    }
-                }
+                destinationClip = LoadVanillaClip(randomSelection.Name["<atlyss>".Length..]);
             }
             else
             {
-                selectedPack.TryGetReadyClip(randomSelection.Name, out destinationClip);
+                selectedPack.LoadClip(randomSelection.Name, out destinationClip);
             }
 
             if (destinationClip != null)
@@ -1061,5 +1317,24 @@ internal static class AudioEngine
         source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip ?? ErrorClip);
 
         return true;
+    }
+
+    private static AudioClip? LoadVanillaClip(string clipName)
+    {
+        // Try to load a vanilla clip
+        if (!LoadedVanillaClips.TryGetValue(clipName, out var destinationClip) || destinationClip == null)
+        {
+            if (VanillaClips.NameToResourcePath.TryGetValue(clipName, out var path))
+            {
+                destinationClip = Resources.Load<AudioClip>(path);
+
+                if (destinationClip)
+                {
+                    LoadedVanillaClips[clipName] = destinationClip;
+                }
+            }
+        }
+
+        return destinationClip;
     }
 }

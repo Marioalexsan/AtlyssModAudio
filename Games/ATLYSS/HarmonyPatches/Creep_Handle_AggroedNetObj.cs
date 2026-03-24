@@ -1,7 +1,7 @@
 ﻿using HarmonyLib;
 using System.Reflection;
 
-namespace Marioalexsan.ModAudio.HarmonyPatches;
+namespace Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
 
 [HarmonyPatch]
 static class Creep_Handle_AggroedNetObj

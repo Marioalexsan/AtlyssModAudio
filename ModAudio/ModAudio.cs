@@ -1,192 +1,248 @@
-﻿using BepInEx;
+﻿using System.Reflection;
+using System.Runtime.CompilerServices;
+using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
-using Marioalexsan.ModAudio.SoftDependencies;
+using Marioalexsan.ModAudio.HarmonyPatches;
+using Nessie.ATLYSS.EasySettings;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Marioalexsan.ModAudio;
 
-[BepInPlugin(ModInfo.GUID, ModInfo.NAME, ModInfo.VERSION)]
-[BepInDependency(EasySettings.ModID, BepInDependency.DependencyFlags.SoftDependency)]
-[BepInDependency("Marioalexsan.AtlyssLua", BepInDependency.DependencyFlags.HardDependency)]
-public class ModAudio : BaseUnityPlugin
+public class ModAudio : MonoBehaviour
 {
-    internal const string HomebreweryGUID = "Homebrewery";
-
-    public static ModAudio Plugin => _plugin ?? throw new InvalidOperationException($"{nameof(ModAudio)} hasn't been initialized yet. Either wait until initialization, or check via ChainLoader instead.");
-    private static ModAudio? _plugin;
+    public static ModAudio Current { get; private set; } = null!;
 
     public const float MinWeight = 0.001f;
     public const float MaxWeight = 1000f;
     public const float DefaultWeight = 1f;
 
-    internal new ManualLogSource Logger { get; private set; }
+    // Default values corresponds to 44100 Hz, stereo, float samples, 20 seconds of audio
+    public static long AudioStreamingLimitBytes { get; internal set; } = 44100 * 2 * 4 * 20;
 
-    private readonly Harmony _harmony;
+    internal static ManualLogSource Logger { get; set; } = null!;
+    internal static ConfigFile Config { get; set; } = null!;
+    internal static readonly Harmony Harmony = new Harmony(ModInfo.GUID);
 
-    private bool _firstTimeUpdate = true;
+    private static bool ScheduleHardReload = true;
 
-    public bool Knuckles { get; internal set; } = false;
+    public static bool Knuckles { get; internal set; } = false;
 
-    public string ModAudioConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
-    public string ModAudioPluginFolder => Path.GetDirectoryName(Info.Location);
-    public string ModAudioAssetsFolder => Path.Combine(ModAudioPluginFolder, "Assets");
+    public static string ConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
+    public static string PluginFolder { get; internal set; } = null!;
+    public static string AssetsFolder => Path.Combine(PluginFolder, "Assets");
+    public static string TestPacksFolder => Path.Combine(PluginFolder, "TestPacks");
+    public static bool CurrentlyEnabled { get; private set; } = false;
 
-    public bool CurrentlyEnabled { get; private set; } = false;
+    public static GameObject? EasySettingsAudioPacksRoot { get; set; }
 
-    private AudioDebugDisplay? _display;
-
-    public ModAudio()
+    public static void RegisterGameImplementation(ModAudioGame game)
     {
-        _plugin = this;
-
-        ModAudioEnabled = Config.Bind("General", nameof(ModAudioEnabled), true, "Whenever ModAudio is enabled or not. Disabling this will unload audio packs and undo any changes to the audio engine.");
-        DebugMenuButton = Config.Bind("General", nameof(DebugMenuButton), KeyCode.None, "Button to use for toggling on/off the debug menu for ModAudio. This menu contains various logs for the mod, and can be useful for debugging audio packs, clips and other issues.");
-        SourceDetectionRate = Config.Bind("Engine", nameof(SourceDetectionRate), Marioalexsan.ModAudio.SourceDetectionRate.Fast, "How fast to detect new audio sources. Slower detection is less resource demanding, but can sometimes fail to detect playOnAwake audio sources. Realtime will make it frame accurate, but will cause a significant impact on FPS.");
-        EasterEggsEnabled = Config.Bind("Misc", nameof(EasterEggsEnabled), true, "Whenever ModAudio's easter egg features are enabled or not.");
-
-        Logger = base.Logger;
-
-        CurrentlyEnabled = ModAudioEnabled.Value;
-        _harmony = new Harmony(ModInfo.GUID);
-    }
-
-    private void SetupBaseAudioPack()
-    {
-        if (!Directory.Exists(ModAudioConfigFolder))
-            Directory.CreateDirectory(ModAudioConfigFolder);
-
-        if (File.Exists(Path.Combine(ModAudioConfigFolder, "clip_names.txt")))
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (AudioEngine.Game != null)
         {
-            try
-            {
-                File.Move(Path.Combine(ModAudioConfigFolder, "clip_names.txt"), Path.Combine(ModAudioConfigFolder, "clip_names_obsolete.txt"));
-            }
-            catch (Exception) { }
+            Logging.LogWarning($"Failed to register game implementation {game}! Implementation {AudioEngine.Game} is already in use.");
+            return;
         }
 
-        VanillaClips.GenerateReferenceFile(Path.Combine(ModAudioConfigFolder, "clip_names.md"));
+        AudioEngine.Game = game;
+        Logging.LogInfo($"Registered game implementation {game}!");
     }
 
     private void Awake()
     {
-        _harmony.PatchAll(typeof(ModAudio).Assembly);
-        _display = gameObject.AddComponent<AudioDebugDisplay>();
+        Current = this;
+        CurrentlyEnabled = ModAudioEnabled.Value;
 
+        // Patch the classes directly
+        // The reason we don't use PatchAll on the assembly is that this would make Harmony hit Lua-CSharp types
+        // and would crash if scripting is not actually available
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_PlayHelper));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_Play));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_PlayOneShotHelper));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_Stop));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_VolumeSetter));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_PitchSetter));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_VolumeGetter));
+        ModAudio.Harmony.PatchAll(typeof(AudioSource_PitchGetter));
+        
         SetupBaseAudioPack();
-        InitializeConfiguration();
-    }
 
-    public ConfigEntry<bool> ModAudioEnabled { get; }
-    public ConfigEntry<bool> EasterEggsEnabled { get; }
-    public ConfigEntry<KeyCode> DebugMenuButton { get; }
-    public ConfigEntry<SourceDetectionRate> SourceDetectionRate { get; }
-
-    public Dictionary<string, ConfigEntry<bool>> AudioPackEnabled { get; } = [];
-    public Dictionary<string, (GameObject Toggle, string DisplayName)> AudioPackEnabledObjects { get; } = [];
-
-    public GameObject? AudioPackEnabledRoot { get; set; }
-
-    private void InitializeConfiguration()
-    {
-        if (EasySettings.IsAvailable)
+        if (SoftDependencies.HasEasySettings())
         {
-            EasySettings.OnApplySettings.AddListener(() =>
+            EasySettings_Initialize();
+
+            [MethodImpl(SoftDependencies.MethodOpts)]
+            static void EasySettings_Initialize()
             {
-                try
+                Settings.OnInitialized.AddListener(() =>
                 {
-                    Config.Save();
-
-                    bool hardReloadRequired = false;
-                    bool softReloadRequired = false;
-
-                    // If ModAudio was just disabled or enabled, we should do a hard reload to cleanup any leftover packs
-                    if (CurrentlyEnabled != ModAudioEnabled.Value)
+                    Settings.ModTab.AddHeader(ModInfo.NAME);
+                    Settings.ModTab.AddToggle("Enable ModAudio?", ModAudioEnabled);
+                    Settings.ModTab.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
+                    Settings.ModTab.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
+                    Settings.ModTab.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
+                });
+                Settings.OnApplySettings.AddListener(() =>
+                {
+                    try
                     {
-                        CurrentlyEnabled = ModAudioEnabled.Value;
-                        hardReloadRequired = true;
-                    }
+                        Config.Save();
 
-                    foreach (var pack in AudioEngine.AudioPacks)
-                    {
-                        if (pack.HasFlag(PackFlags.NotConfigurable))
-                            continue; // Not configurable - do not touch
+                        bool hardReloadRequired = false;
+                        bool softReloadRequired = false;
 
-                        var enabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
-
-                        if (!CurrentlyEnabled)
-                            enabled = false;
-
-                        if (enabled != pack.HasFlag(PackFlags.Enabled))
+                        // If ModAudio was just disabled or enabled, we should do a hard reload to cleanup any leftover packs
+                        if (CurrentlyEnabled != ModAudioEnabled.Value)
                         {
-                            Logger.LogInfo($"Pack {pack.Config.Id} is now {(enabled ? "enabled" : "disabled")}");
-                            softReloadRequired = true;
+                            CurrentlyEnabled = ModAudioEnabled.Value;
+                            hardReloadRequired = true;
                         }
 
-                        pack.AssignFlag(PackFlags.Enabled, enabled);
-                    }
+                        foreach (var pack in AudioEngine.AudioPacks)
+                        {
+                            if (pack.HasFlag(PackFlags.NotConfigurable))
+                                continue; // Not configurable - do not touch
 
-                    if (hardReloadRequired)
-                    {
-                        AudioEngine.HardReload();
+                            var packEnabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
+
+                            if (!CurrentlyEnabled)
+                                packEnabled = false;
+
+                            if (packEnabled != pack.HasFlag(PackFlags.Enabled))
+                            {
+                                Logger.LogInfo($"Pack {pack.Config.Id} is now {(packEnabled ? "enabled" : "disabled")}");
+                                softReloadRequired = true;
+                            }
+
+                            pack.AssignFlag(PackFlags.Enabled, packEnabled);
+                        }
+
+                        if (hardReloadRequired)
+                        {
+                            AudioEngine.HardReload();
+                        }
+                        else if (softReloadRequired)
+                        {
+                            AudioEngine.SoftReload();
+                        }
                     }
-                    else if (softReloadRequired)
+                    catch (Exception e)
                     {
-                        AudioEngine.SoftReload();
+                        Logging.LogError($"ModAudio crashed in OnApplySettings! Please report this error to the mod developer:");
+                        Logging.LogError(e.ToString());
                     }
-                }
-                catch (Exception e)
-                {
-                    Logging.LogError($"ModAudio crashed in OnApplySettings! Please report this error to the mod developer:");
-                    Logging.LogError(e.ToString());
-                }
-            });
-            EasySettings.OnInitialized.AddListener(() =>
-            {
-                EasySettings.AddHeader(ModInfo.NAME);
-                EasySettings.AddToggle("Enable ModAudio?", ModAudioEnabled);
-                EasySettings.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
-                EasySettings.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
-                EasySettings.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
-            });
+                });
+            }
         }
     }
 
-    internal void InitializePackConfiguration()
+    private static void SetupBaseAudioPack()
     {
-        if (EasySettings.IsAvailable && !AudioPackEnabledRoot)
+        if (!Directory.Exists(ConfigFolder))
+            Directory.CreateDirectory(ConfigFolder);
+
+        if (File.Exists(Path.Combine(ConfigFolder, "clip_names.txt")))
         {
-            EasySettings.AddHeader($"{ModInfo.NAME} audio packs");
-            EasySettings.AddButton(Texts.OpenCustomAudioPackTitle, () =>
+            try
             {
-                SetupBaseAudioPack();
-                Application.OpenURL(new Uri($"{ModAudioConfigFolder}").AbsoluteUri);
-            });
-            EasySettings.AddButton(Texts.HardReloadTitle, () => _firstTimeUpdate = true);
-            AudioPackEnabledRoot = EasySettings.AddButton(Texts.ReloadScripts, AudioEngine.SoftReloadScripts);
+                File.Move(Path.Combine(ConfigFolder, "clip_names.txt"), Path.Combine(ConfigFolder, "clip_names_obsolete.txt"));
+            }
+            catch (Exception)
+            {
+            }
         }
 
+        VanillaClips.GenerateReferenceFile(Path.Combine(ConfigFolder, "clip_names.md"));
+    }
+
+    public static ConfigEntry<bool> ModAudioEnabled { get; internal set; } = null!;
+    public static ConfigEntry<bool> EasterEggsEnabled { get; internal set; } = null!;
+    public static ConfigEntry<KeyCode> DebugMenuButton { get; internal set; } = null!;
+    public static ConfigEntry<SourceDetectionRate> SourceDetectionRate { get; internal set; } = null!;
+    public static ConfigEntry<bool> EnableTestPacks { get; internal set; } = null!;
+
+    public static Dictionary<string, ConfigEntry<bool>> AudioPackEnabled { get; } = [];
+    public static Dictionary<string, (GameObject Toggle, string DisplayName)> AudioPackEnabledObjects { get; } = [];
+
+    internal static void InitializePackConfiguration()
+    {
+        if (SoftDependencies.HasEasySettings())
+        {
+            SetupAudioPackRoot();
+            
+            [MethodImpl(SoftDependencies.MethodOpts)]
+            static void SetupAudioPackRoot()
+            {
+                if (EasySettingsAudioPacksRoot)
+                    return;
+                
+                Settings.ModTab.AddHeader($"{ModInfo.NAME} audio packs");
+                Settings.ModTab.AddButton(Texts.OpenCustomAudioPackTitle, () =>
+                {
+                    SetupBaseAudioPack();
+                    Application.OpenURL(new Uri($"{ConfigFolder}").AbsoluteUri);
+                });
+                Settings.ModTab.AddButton(Texts.HardReloadTitle, () => ScheduleHardReload = true);
+                EasySettingsAudioPacksRoot = Settings.ModTab.AddButton(Texts.ReloadScripts, AudioEngine.SoftReloadScripts).Root.gameObject;
+            }
+        }
+        
         foreach (var pack in AudioEngine.AudioPacks)
         {
             if (pack.HasFlag(PackFlags.NotConfigurable))
                 continue; // Not configurable
 
+            var overrides = AudioEngine.ModpackOverrides.FirstOrDefault(x => x.TargetPackId == pack.Config.Id);
+
             if (!AudioPackEnabled.TryGetValue(pack.Config.Id, out var existingEntry))
             {
-                var enabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, pack.Config.EnabledByDefault, Texts.EnablePackDescription(pack.Config.DisplayName));
+                var enabledByDefault = pack.Config.EnabledByDefault;
+                bool? forceEnableState = null;
 
-                AudioPackEnabled[pack.Config.Id] = enabled;
-
-                if (EasySettings.IsAvailable)
+                if (overrides != null && overrides.EnableState.HasValue)
                 {
-                    if (!AudioPackEnabledObjects.ContainsKey(pack.Config.Id))
-                        AudioPackEnabledObjects[pack.Config.Id] = (EasySettings.AddToggle(pack.Config.DisplayName, enabled), pack.Config.DisplayName);
+                    switch (overrides.EnableState.Value)
+                    {
+                        case ModpackOverride.EnableStates.AlwaysEnabled:
+                            forceEnableState = true;
+                            enabledByDefault = true;
+                            break;
+                        case ModpackOverride.EnableStates.EnableByDefault:
+                            enabledByDefault = true;
+                            break;
+                        case ModpackOverride.EnableStates.AlwaysDisabled:
+                            forceEnableState = false;
+                            enabledByDefault = false;
+                            break;
+                        case ModpackOverride.EnableStates.DisableByDefault:
+                            enabledByDefault = false;
+                            break;
+                    }
                 }
                 
-                pack.AssignFlag(PackFlags.Enabled, CurrentlyEnabled && enabled.Value);
+                var packEnabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, enabledByDefault, Texts.EnablePackDescription(pack.Config.DisplayName));
+
+                if (forceEnableState != null)
+                    packEnabled.Value = forceEnableState.Value;
+
+                AudioPackEnabled[pack.Config.Id] = packEnabled;
+                
+                if (SoftDependencies.HasEasySettings())
+                {
+                    AddAudioPackToggle(pack, packEnabled);
+                    
+                    [MethodImpl(SoftDependencies.MethodOpts)]
+                    static void AddAudioPackToggle(AudioPack pack, ConfigEntry<bool> packEnabled)
+                    {
+                        if (!AudioPackEnabledObjects.ContainsKey(pack.Config.Id))
+                            AudioPackEnabledObjects[pack.Config.Id] = (Settings.ModTab.AddToggle(pack.Config.DisplayName, packEnabled).Root.gameObject, pack.Config.DisplayName);
+                    }
+                }
+
+                pack.AssignFlag(PackFlags.Enabled, CurrentlyEnabled && packEnabled.Value);
             }
             else
             {
@@ -194,20 +250,29 @@ public class ModAudio : BaseUnityPlugin
             }
         }
 
-        if (EasySettings.IsAvailable && AudioPackEnabledRoot != null)
+        if (SoftDependencies.HasEasySettings())
         {
-            int siblingIndex = AudioPackEnabledRoot.transform.GetSiblingIndex() + 1;
-
-            foreach (var config in AudioPackEnabledObjects.OrderBy(x => x.Value.DisplayName))
+            SortAudioPackToggles();
+            
+            [MethodImpl(SoftDependencies.MethodOpts)]
+            static void SortAudioPackToggles()
             {
-                // Reorder so that it's in the audio pack list, sorted by display name
-                config.Value.Toggle.transform.SetSiblingIndex(siblingIndex++);
-            }
+                if (EasySettingsAudioPacksRoot == null)
+                    return;
+                
+                int siblingIndex = EasySettingsAudioPacksRoot.transform.GetSiblingIndex() + 1;
 
-            foreach (var config in AudioPackEnabledObjects)
-            {
-                // Show or hide if pack is present
-                config.Value.Toggle.SetActive(AudioEngine.AudioPacks.Any(x => x.Config.Id == config.Key));
+                foreach (var config in AudioPackEnabledObjects.OrderBy(x => x.Value.DisplayName))
+                {
+                    // Reorder so that it's in the audio pack list, sorted by display name
+                    config.Value.Toggle.transform.SetSiblingIndex(siblingIndex++);
+                }
+
+                foreach (var config in AudioPackEnabledObjects)
+                {
+                    // Show or hide if pack is present
+                    config.Value.Toggle.SetActive(AudioEngine.AudioPacks.Any(x => x.Config.Id == config.Key));
+                }
             }
         }
     }
@@ -216,11 +281,9 @@ public class ModAudio : BaseUnityPlugin
     {
         try
         {
-
-            if (_firstTimeUpdate)
+            if (ScheduleHardReload)
             {
-                _firstTimeUpdate = false;
-
+                ScheduleHardReload = false;
                 AudioEngine.HardReload();
             }
 

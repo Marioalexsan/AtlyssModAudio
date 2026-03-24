@@ -6,9 +6,9 @@ using System.Text;
 namespace Marioalexsan.ModAudio.Scripting.Data;
 
 [LuaObject]
-public partial class TargetGroupData(ModAudioSource target)
+public partial class TargetGroupData
 {
-    public ModAudioSource Source = target;
+    public ModAudioSource Source { get; set; } = null!;
 
     [LuaMember("targetGroup")]
     public string TargetGroup { get; set; } = AudioEngine.TargetGroupAll;
@@ -20,7 +20,7 @@ public partial class TargetGroupData(ModAudioSource target)
     public string? OriginalClipName => Source.InitialState.Clip?.name;
 
     [LuaMember("clipName")]
-    public string? ClipName => Source.CurrentState.Clip?.name;
+    public string? ClipName => Source.Audio.clip?.name;
 
     [LuaMember("gameObjectName")]
     public string ObjectName => Source.Audio.gameObject.name;

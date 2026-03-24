@@ -13,6 +13,7 @@ public class RouteConfig
     private static readonly char[] ListSeparator = ['|'];
 
     public Dictionary<string, float> ClipVolumes { get; set; } = [];
+    public Dictionary<string, string> ClipPaths { get; set; } = [];
     public List<Route> Routes { get; set; } = [];
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
@@ -20,16 +21,9 @@ public class RouteConfig
     public bool EnabledByDefault { get; set; } = true;
 
     // Note: this format is stupid and dumb and I hate it and ugh why
-    public static RouteConfig ReadTextFormat(Stream stream)
+    public static void ReadTextFormat(Stream stream, RouteConfig pack, Action<int, string> errorLogger)
     {
         using var streamReader = new StreamReader(stream);
-
-        var clipVolumes = new Dictionary<string, float>();
-        var routes = new List<Route>();
-        var id = "";
-        var displayName = "";
-        var updateScript = "";
-        var enabledByDefault = true;
 
         int lineNumber = 0;
 
@@ -46,7 +40,7 @@ public class RouteConfig
             // = replacement \
             // @ overlay
 
-            string nextLine;
+            string? nextLine;
             while ((nextLine = streamReader.ReadLine()) != null)
             {
                 lineNumber++;
@@ -82,7 +76,7 @@ public class RouteConfig
 
             if (badLineContinuation)
             {
-                Logging.LogWarning($"Line {lineNumber}: Expected only whitespace and comments after line continuation (\"\\\")");
+                errorLogger(lineNumber, $"Expected only whitespace and comments after line continuation (\"\\\")");
                 continue;
             }
 
@@ -91,17 +85,17 @@ public class RouteConfig
 
             if (routeText.Trim().StartsWith("%"))
             {
-                ParseGlobalParamer(routeText);
+                ParseGlobalParamer(routeText, errorLogger);
                 continue;
             }
 
             if (routeText.Contains("/") || routeText.IndexOfAny(EffectSeparator) == -1 && routeText.IndexOfAny(OverlaySeparator) == -1 && routeText.IndexOfAny(FieldSeparator) == -1 && routeText.IndexOfAny(ListSeparator) == -1)
             {
-                ParseSimpleRouteFormat(routeText);
+                ParseSimpleRouteFormat(routeText, errorLogger);
                 continue;
             }
 
-            if (!SplitRouteParts(routeText, out var clipNames, out var replacements, out var overlays, out var effects))
+            if (!SplitRouteParts(routeText, out var clipNames, out var replacements, out var overlays, out var effects, errorLogger))
                 continue;
 
             var route = new Route
@@ -115,7 +109,7 @@ public class RouteConfig
 
                 if (fields.Length > 5)
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Too many values defined for a target clip (expected at most 5), skipping it.");
+                    errorLogger(routeStartLine, $"Too many values defined for a target clip (expected at most 5), skipping it.");
                     continue;
                 }
 
@@ -123,7 +117,7 @@ public class RouteConfig
 
                 if (replacementName == "")
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: empty clip, ignoring it.");
+                    errorLogger(routeStartLine, $"Empty clip, ignoring it.");
                     replacements.RemoveAt(i--);
                 }
 
@@ -133,13 +127,13 @@ public class RouteConfig
                 var group = "";
 
                 if (fields.Length > 1 && !float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse random weight {fields[1]} for {replacementName}, defaulting to {randomWeight}.");
+                    errorLogger(routeStartLine, $"Couldn't parse random weight {fields[1]} for {replacementName}, defaulting to {randomWeight}.");
 
                 if (fields.Length > 2 && !float.TryParse(fields[2], NumberStyles.Number, CultureInfo.InvariantCulture, out volume))
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse volume {fields[2]} for {replacementName}, defaulting to {volume}.");
+                    errorLogger(routeStartLine, $"Couldn't parse volume {fields[2]} for {replacementName}, defaulting to {volume}.");
 
                 if (fields.Length > 3 && !float.TryParse(fields[3], NumberStyles.Number, CultureInfo.InvariantCulture, out pitch))
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse pitch {fields[3]} for {replacementName}, defaulting to {pitch}.");
+                    errorLogger(routeStartLine, $"Couldn't parse pitch {fields[3]} for {replacementName}, defaulting to {pitch}.");
 
                 if (fields.Length > 4)
                     group = fields[4];
@@ -154,7 +148,7 @@ public class RouteConfig
                 });
             }
 
-            routes.Add(route);
+            pack.Routes.Add(route);
 
             for (int i = 0; i < overlays.Count; i++)
             {
@@ -162,7 +156,7 @@ public class RouteConfig
 
                 if (fields.Length > 4)
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Too many values defined for a target clip (expected at most 4), skipping it.");
+                    errorLogger(routeStartLine, $"Too many values defined for a target clip (expected at most 4), skipping it.");
                     continue;
                 }
 
@@ -170,7 +164,7 @@ public class RouteConfig
 
                 if (overlayName == "")
                 {
-                    ModAudio.Plugin?.Logger?.LogWarning($"Line {routeStartLine}: empty clip, ignoring it.");
+                    errorLogger(routeStartLine, $"Empty clip, ignoring it.");
                     overlays.RemoveAt(i--);
                 }
 
@@ -180,17 +174,17 @@ public class RouteConfig
 
                 if (fields.Length > 1 && !float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse random weight {fields[1]} for {overlayName}, defaulting to {ModAudio.DefaultWeight}.");
+                    errorLogger(routeStartLine, $"Couldn't parse random weight {fields[1]} for {overlayName}, defaulting to {ModAudio.DefaultWeight}.");
                 }
 
                 if (fields.Length > 2 && !float.TryParse(fields[2], NumberStyles.Number, CultureInfo.InvariantCulture, out volume))
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse volume {fields[2]} for {overlayName}, defaulting to 1.");
+                    errorLogger(routeStartLine, $"Couldn't parse volume {fields[2]} for {overlayName}, defaulting to 1.");
                 }
 
                 if (fields.Length > 3 && !float.TryParse(fields[3], NumberStyles.Number, CultureInfo.InvariantCulture, out pitch))
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse pitch {fields[3]} for {overlayName}, defaulting to 1.");
+                    errorLogger(routeStartLine, $"Couldn't parse pitch {fields[3]} for {overlayName}, defaulting to 1.");
                 }
 
                 route.OverlayClips.Add(new()
@@ -208,92 +202,112 @@ public class RouteConfig
 
                 if (fields.Length == 1)
                 {
-                    Logging.LogWarning($"Line {routeStartLine}: Expected a value for {fields[0]}.");
+                    errorLogger(routeStartLine, $"Expected a value for {fields[0]}.");
                     continue;
                 }
 
-                bool parsed = false;
+                bool parsedValue = false;
 
                 switch (fields[0])
                 {
+                    case "link_ovl_repl":
                     case "link_overlay_and_replacement":
-                        if (parsed = bool.TryParse(fields[1], out bool link_overlay_and_replacement))
+                        if (parsedValue = bool.TryParse(fields[1], out bool link_overlay_and_replacement))
                             route.LinkOverlayAndReplacement = link_overlay_and_replacement;
                         break;
+                    case "rel_repl_fx":
                     case "relative_replacement_effects":
-                        if (parsed = bool.TryParse(fields[1], out bool relative_replacement_effects))
+                        if (parsedValue = bool.TryParse(fields[1], out bool relative_replacement_effects))
                             route.RelativeReplacementEffects = relative_replacement_effects;
                         break;
+                    case "ovl_stop_with_src":
                     case "overlay_stops_if_source_stops":
-                        if (parsed = bool.TryParse(fields[1], out bool overlay_stops_if_source_stops))
+                        if (parsedValue = bool.TryParse(fields[1], out bool overlay_stops_if_source_stops))
                             route.OverlayStopsIfSourceStops = overlay_stops_if_source_stops;
                         break;
+                    case "rel_ovl_fx":
                     case "relative_overlay_effects":
-                        if (parsed = bool.TryParse(fields[1], out bool relative_overlay_effects))
+                        if (parsedValue = bool.TryParse(fields[1], out bool relative_overlay_effects))
                             route.RelativeOverlayEffects = relative_overlay_effects;
                         break;
+                    case "ovl_ign_restart":
                     case "overlays_ignore_restarts":
-                        if (parsed = bool.TryParse(fields[1], out bool overlaysIgnoreRestarts))
+                        if (parsedValue = bool.TryParse(fields[1], out bool overlaysIgnoreRestarts))
                             route.OverlaysIgnoreRestarts = overlaysIgnoreRestarts;
                         break;
+                    case "tg_lua":
                     case "target_group_script":
                         route.TargetGroupScript = fields[1];
-                        parsed = true;
+                        parsedValue = true;
                         break;
+                    case "tg_dyn":
                     case "enable_dynamic_targeting":
-                        if (parsed = bool.TryParse(fields[1], out bool enableDynamicTargeting))
+                        if (parsedValue = bool.TryParse(fields[1], out bool enableDynamicTargeting))
                             route.EnableDynamicTargeting = enableDynamicTargeting;
                         break;
+                    case "tg_smooth":
                     case "smooth_dynamic_targeting":
-                        if (parsed = bool.TryParse(fields[1], out bool smoothDynamicTargeting))
+                        if (parsedValue = bool.TryParse(fields[1], out bool smoothDynamicTargeting))
                             route.SmoothDynamicTargeting = smoothDynamicTargeting;
                         break;
+                    case "chain":
                     case "chain_route":
-                        if (parsed = bool.TryParse(fields[1], out bool allowChainRouting))
+                        if (parsedValue = bool.TryParse(fields[1], out bool allowChainRouting))
                             route.UseChainRouting = allowChainRouting;
                         break;
-                    case "replacement_weight":
+                    case "w":
+                    case "rw":
                     case "weight":
-                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float replacementWeight))
+                    case "replacement_weight":
+                        if (parsedValue = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float replacementWeight))
                             route.ReplacementWeight = replacementWeight;
                         break;
+                    case "v":
+                    case "vol":
                     case "volume":
-                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float volume))
+                        if (parsedValue = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float volume))
                             route.Volume = volume;
                         break;
+                    case "p":
+                    case "pit":
                     case "pitch":
-                        if (parsed = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float pitch))
+                        if (parsedValue = float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float pitch))
                             route.Pitch = pitch;
                         break;
+                    case "fl":
                     case "force_loop":
-                        if (parsed = bool.TryParse(fields[1], out bool force_loop))
+                        if (parsedValue = bool.TryParse(fields[1], out bool force_loop))
                             route.ForceLoop = force_loop;
                         break;
+                    case "fp":
                     case "force_play":
-                        if (parsed = bool.TryParse(fields[1], out bool force_play))
+                        if (parsedValue = bool.TryParse(fields[1], out bool force_play))
                             route.ForcePlay = force_play;
                         break;
+                    case "map":
+                    case "map_name":
+                        if (fields.Length == 1)
+                        {
+                            errorLogger(routeStartLine, $"Expected at least a value for {fields[0]}.");
+                        }
+                        else
+                        {
+                            route.MapNameCondition = fields[1..].ToList();
+                        }
+                        parsedValue = true;
+                        break;
                     default:
-                        Logging.LogWarning($"Line {routeStartLine}: Unrecognized route effect / setting {fields[0]}.");
+                        errorLogger(routeStartLine, $"Unrecognized route effect / setting {fields[0]}.");
+                        parsedValue = true;
                         break;
                 }
 
-                if (!parsed)
-                    Logging.LogWarning($"Line {routeStartLine}: Couldn't parse {fields[0]}.");
+                if (!parsedValue)
+                    errorLogger(routeStartLine, $"Couldn't parse {fields[0]}.");
             }
         }
 
-        return new()
-        {
-            ClipVolumes = clipVolumes,
-            Id = id,
-            DisplayName = displayName,
-            Routes = routes,
-            UpdateScript = updateScript,
-            EnabledByDefault = enabledByDefault
-        };
-
-        bool SplitRouteParts(string line, out List<string> clipNames, out List<string> replacements, out List<string> overlays, out List<string> effects)
+        bool SplitRouteParts(string line, out List<string> clipNames, out List<string> replacements, out List<string> overlays, out List<string> effects, Action<int, string> errorLogger)
         {
             clipNames = [];
             replacements = [];
@@ -308,7 +322,7 @@ public class RouteConfig
 
             if (parts.Length > 5 || parts.Length == 1)
             {
-                Logging.LogWarning($"Line {lineNumber}: Encountered a malformed route (expected source = replacement @ overlay ~ modifier), skipping it.");
+                errorLogger(lineNumber, $"Encountered a malformed route (expected source = replacement @ overlay ~ modifier), skipping it.");
                 return false;
             }
 
@@ -317,7 +331,7 @@ public class RouteConfig
 
             if (nextIndex == -1)
             {
-                Logging.LogWarning($"Line {lineNumber}: Encountered a malformed route (expected source = replacement @ overlay ~ effect), skipping it.");
+                errorLogger(lineNumber, $"Encountered a malformed route (expected source = replacement @ overlay ~ effect), skipping it.");
                 return false;
             }
 
@@ -362,7 +376,7 @@ public class RouteConfig
 
             if (invalidRoute)
             {
-                Logging.LogWarning($"Line {lineNumber}: Encountered a malformed route (expected source = replacement @ overlay ~ effect), skipping it.");
+                errorLogger(lineNumber, $"Encountered a malformed route (expected source = replacement @ overlay ~ effect), skipping it.");
                 return false;
             }
 
@@ -377,14 +391,14 @@ public class RouteConfig
             {
                 if (clipNames[i] == "")
                 {
-                    Logging.LogWarning($"Line {lineNumber}: empty source clip, ignoring it.");
+                    errorLogger(lineNumber, $"empty source clip, ignoring it.");
                     clipNames.RemoveAt(i--);
                 }
             }
 
             if (clipNames.Count == 0)
             {
-                Logging.LogWarning($"Line {lineNumber}: Expected at least one valid source clip, skipping route.");
+                errorLogger(lineNumber, $"Expected at least one valid source clip, skipping route.");
                 return false;
             }
 
@@ -395,26 +409,30 @@ public class RouteConfig
             return true;
         }
 
-        void ParseGlobalParamer(string line)
+        void ParseGlobalParamer(string line, Action<int, string> errorLogger)
         {
             if (line.Trim().StartsWith("%id "))
             {
-                id = line.Trim()["%id ".Length..].Trim();
+                pack.Id = line.Trim()["%id ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%updatescript "))
             {
-                updateScript = line.Trim()["%updatescript ".Length..].Trim();
+                pack.UpdateScript = line.Trim()["%updatescript ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%displayname "))
             {
-                displayName = line.Trim()["%displayname ".Length..].Trim();
+                pack.DisplayName = line.Trim()["%displayname ".Length..].Trim();
             }
             else if (line.Trim().StartsWith("%enabledbydefault "))
             {
-                if (!bool.TryParse(line.Trim()["%enabledbydefault ".Length..].Trim(), out enabledByDefault))
+                if (!bool.TryParse(line.Trim()["%enabledbydefault ".Length..].Trim(), out var enabledByDefault))
                 {
-                    Logging.LogWarning($"Line {lineNumber}: Enable state must be either \"true\" or \"false\".");
-                    enabledByDefault = true;
+                    errorLogger(lineNumber, $"Enable state must be either \"true\" or \"false\".");
+                    pack.EnabledByDefault = true;
+                }
+                else
+                {
+                    pack.EnabledByDefault = enabledByDefault;
                 }
             }
             else if (line.Trim().StartsWith("%customclipvolume "))
@@ -422,29 +440,56 @@ public class RouteConfig
                 var customClipData = line.Trim()["%customclipvolume ".Length..].Split('=');
 
                 if (customClipData.Length != 2)
-                    Logging.LogWarning($"Line {lineNumber}: Expected %customclipvolume clipName = volume.");
+                {
+                    errorLogger(lineNumber, $"Expected %customclipvolume clipName = volume.");
+                } 
+                else if (customClipData[0].Trim() == "")
+                {
+                    errorLogger(lineNumber, $"Expected a clip name.");
+                }
+                else if (!float.TryParse(customClipData[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float clipVolume))
+                {
+                    errorLogger(lineNumber, $"Volume is not a number.");
+                }
+                else
+                {
+                    pack.ClipVolumes[customClipData[0].Trim()] = clipVolume;
+                }
+            }
+            else if (line.Trim().StartsWith("%customclippath "))
+            {
+                var customClipData = line.Trim()["%customclippath ".Length..].Split('=');
 
-                if (customClipData[0].Trim() == "")
-                    Logging.LogWarning($"Line {lineNumber}: Expected a clip name.");
-
-                if (!float.TryParse(customClipData[1], NumberStyles.Number, CultureInfo.InvariantCulture, out float clipVolume))
-                    Logging.LogWarning($"Line {lineNumber}: Volume is not a number.");
-
-                clipVolumes[customClipData[0].Trim()] = clipVolume;
+                if (customClipData.Length != 2)
+                {
+                    errorLogger(lineNumber, $"Expected %customclippath clipName = relative/path/to/clip.");
+                } 
+                else if (customClipData[0].Trim() == "")
+                {
+                    errorLogger(lineNumber, $"Expected a clip name.");
+                }
+                else if (string.IsNullOrEmpty(customClipData[1].Trim()))
+                {
+                    errorLogger(lineNumber, $"Path is missing or empty.");
+                }
+                else
+                {
+                    pack.ClipPaths[customClipData[0].Trim()] = customClipData[1].Trim();
+                }
             }
             else
             {
-                Logging.LogWarning($"Line {lineNumber}: Unrecognized attribute {line.Trim().Substring(1)}.");
+                errorLogger(lineNumber, $"Unrecognized attribute {line.Trim().Substring(1)}.");
             }
         }
 
-        void ParseSimpleRouteFormat(string line)
+        void ParseSimpleRouteFormat(string line, Action<int, string> errorLogger)
         {
             var simpleParts = line.Split(ReplacementSeparator, 3);
 
             if (simpleParts.Length != 2)
             {
-                Logging.LogWarning($"Line {lineNumber}: Encountered a malformed route (expected key = value), skipping it.");
+                errorLogger(lineNumber, $"Encountered a malformed route (expected key = value), skipping it.");
                 return;
             }
 
@@ -452,7 +497,7 @@ public class RouteConfig
 
             if (fields.Length > 2)
             {
-                Logging.LogWarning($"Line {lineNumber}: Too many values defined for a route (expected at most 2), skipping it.");
+                errorLogger(lineNumber, $"Too many values defined for a route (expected at most 2), skipping it.");
                 return;
             }
 
@@ -462,7 +507,7 @@ public class RouteConfig
 
             if (clipName.Trim() == "" || replacementName.Trim() == "")
             {
-                Logging.LogWarning($"Line {lineNumber}: Either clip name or replacement was empty for a route, skipping it.");
+                errorLogger(lineNumber, $"Either clip name or replacement was empty for a route, skipping it.");
                 return;
             }
 
@@ -470,11 +515,11 @@ public class RouteConfig
             {
                 if (!float.TryParse(fields[1], NumberStyles.Number, CultureInfo.InvariantCulture, out randomWeight))
                 {
-                    Logging.LogWarning($"Line {lineNumber}: Couldn't parse random weight {fields[1]} for {clipName} => {replacementName}, defaulting to {ModAudio.DefaultWeight}.");
+                    errorLogger(lineNumber, $"Couldn't parse random weight {fields[1]} for {clipName} => {replacementName}, defaulting to {ModAudio.DefaultWeight}.");
                 }
             }
 
-            routes.Add(new Route()
+            pack.Routes.Add(new Route()
             {
                 OriginalClips = [clipName],
                 ReplacementClips = [new() {
