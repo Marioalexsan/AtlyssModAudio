@@ -1182,9 +1182,9 @@ internal static class AudioEngine
             return;
         
         // Get a replacement from routes
-        for (int i = 0; i < AudioPacks.Count; i++)
+        for (int packIndex = 0; packIndex < AudioPacks.Count; packIndex++)
         {
-            var pack = AudioPacks[i];
+            var pack = AudioPacks[packIndex];
 
             if (!pack.HasFlag(PackFlags.Enabled))
                 continue;
@@ -1205,7 +1205,7 @@ internal static class AudioEngine
                 {
                     for (int aliasIndex = 0; aliasIndex < route.OriginalClipAliases.Count; aliasIndex++)
                     {
-                        if (AudioEngine.Game.MatchesAlias(source, route.OriginalClipAliases[i]))
+                        if (AudioEngine.Game.MatchesAlias(source, route.OriginalClipAliases[aliasIndex]))
                         {
                             matches = true;
                             break;

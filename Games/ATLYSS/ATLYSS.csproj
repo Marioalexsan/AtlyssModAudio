@@ -3,7 +3,7 @@
     <PropertyGroup>
         <AssemblyName>Marioalexsan.ModAudio.Atlyss</AssemblyName>
         <Product>ModAudio.Atlyss</Product>
-        <Version>4.2.0</Version>
+        <Version>4.2.1</Version>
         <RootNamespace>Marioalexsan.ModAudio.Atlyss</RootNamespace>
         <Nullable>enable</Nullable>
     </PropertyGroup>

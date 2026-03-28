@@ -18,11 +18,6 @@ public class AtlyssGame : ModAudioGame
     
     public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
 
-    private bool _actionWasPlaying = false;
-    private bool _daytimeWasPlaying = false;
-    private bool _nightWasPlaying = false;
-    private bool _nullWasPlaying = false;
-    
     public override void OnReload()
     {
         MapInstance_Handle_AudioSettings.ForceCombatMusic = false;

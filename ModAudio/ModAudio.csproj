@@ -3,7 +3,7 @@
     <PropertyGroup>
         <AssemblyName>Marioalexsan.ModAudio</AssemblyName>
         <Product>ModAudio</Product>
-        <Version>4.2.0</Version>
+        <Version>4.2.1</Version>
         <RootNamespace>Marioalexsan.ModAudio</RootNamespace>
         <EnableReleaseProfiling>true</EnableReleaseProfiling>
     </PropertyGroup>
