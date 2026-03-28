@@ -2,7 +2,7 @@
 
 public static partial class VanillaClips
 {
-    private static readonly string[] Paths = [
+    public static readonly string[] Paths = [
         "_sound/angela_aura.ogg",
         "_sound/bombBiggenEX.ogg",
         "_sound/bombHitChar.ogg",

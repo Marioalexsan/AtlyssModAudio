@@ -1,4 +1,4 @@
-﻿using Lua;
+﻿using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -50,6 +50,12 @@ public class ModAudioGame
     public virtual bool MatchesAlias(ModAudioSource audio, string alias)
     {
         // Return nothing
+        return false;
+    }
+
+    public virtual bool TryLoadVanillaClip(string identifier, [NotNullWhen(true)] out AudioClip? clip)
+    {
+        clip = null;
         return false;
     }
 

@@ -70,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audio debug log's text filter now has an option to match by exact word
 - Audio debug log's UI has been reorganized
 - Loading vanilla clips from the game can now be done with `<game>target_clip`. `<atlyss>target_clip` still works, but is considered as deprecated.
+- The route loader now indicates the files in which an invalid route was detected
+- The clip documentation for ATLYSS has been moved from `clip_names.md` to https://github.com/kittycatto1/ZeinaKC-ModAudio-Route-Files/blob/Dominant/Marioalexsan.ModAudio_UserAudioPack/clip_names.md
 
 ### Fixed
 
@@ -135,7 +137,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Somewhat improved performance of scripting (mostly thanks to the scripting backend change)
 - Somewhat improved general performance of the mod
-- The route loader now indicates the files in which an invalid route was detected
 
 ## [3.3.0] - 2025-Sep-17
 

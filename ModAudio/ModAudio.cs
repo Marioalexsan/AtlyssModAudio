@@ -154,8 +154,6 @@ public class ModAudio : MonoBehaviour
             {
             }
         }
-
-        VanillaClips.GenerateReferenceFile(Path.Combine(ConfigFolder, "clip_names.md"));
     }
 
     public static ConfigEntry<bool> ModAudioEnabled { get; internal set; } = null!;

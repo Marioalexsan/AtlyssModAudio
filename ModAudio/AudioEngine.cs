@@ -1324,15 +1324,8 @@ internal static class AudioEngine
         // Try to load a vanilla clip
         if (!LoadedVanillaClips.TryGetValue(clipName, out var destinationClip) || destinationClip == null)
         {
-            if (VanillaClips.NameToResourcePath.TryGetValue(clipName, out var path))
-            {
-                destinationClip = Resources.Load<AudioClip>(path);
-
-                if (destinationClip)
-                {
-                    LoadedVanillaClips[clipName] = destinationClip;
-                }
-            }
+            if (Game.TryLoadVanillaClip(clipName, out destinationClip))
+                LoadedVanillaClips[clipName] = destinationClip;
         }
 
         return destinationClip;

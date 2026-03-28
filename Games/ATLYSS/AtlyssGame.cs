@@ -1,4 +1,5 @@
-﻿using Lua;
+﻿using System.Diagnostics.CodeAnalysis;
+using Lua;
 using Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting.Data;
 using Marioalexsan.ModAudio.Scripting.Proxies;
@@ -118,5 +119,17 @@ public class AtlyssGame : ModAudioGame
     public static string GetCleanMapName(MapInstance instance)
     {
         return string.Concat(instance._mapName.ToLower().Where(x => 'a' <= x && x <= 'z'));
+    }
+
+    public override bool TryLoadVanillaClip(string identifier, [NotNullWhen(true)] out AudioClip? clip)
+    {
+        if (VanillaClips.NameToResourcePath.TryGetValue(identifier, out var path))
+        {
+            clip = Resources.Load<AudioClip>(path);
+            return true;
+        }
+
+        clip = null;
+        return false;
     }
 }

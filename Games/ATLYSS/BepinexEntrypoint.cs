@@ -13,7 +13,8 @@ public class BepinexEntrypoint : BaseUnityPlugin
     
     public void Awake()
     {
-        ModAudio.RegisterGameImplementation(new AtlyssGame());
+        var game = new AtlyssGame();
+        ModAudio.RegisterGameImplementation(game);
         Harmony.PatchAll();
     }
 }

@@ -54,6 +54,15 @@
     
     <!-- Extra folders -->
     <ItemGroup>
+        <Content Include="..\Documentation\0.Overview.md">
+          <Link>AtlyssModAudio\Documentation\0.Overview.md</Link>
+        </Content>
+        <Content Include="..\Documentation\1.Features.md">
+          <Link>AtlyssModAudio\Documentation\1.Features.md</Link>
+        </Content>
+        <Content Include="..\Documentation\2.1.Replacements.md">
+          <Link>AtlyssModAudio\Documentation\2.1.Replacements.md</Link>
+        </Content>
         <Content Include="Assets/**/*" />
         <Content Include="TestPacks/**/*" />
     </ItemGroup>
@@ -86,5 +95,10 @@
 
         <ThunderstoreFile Visible="false" Include="Assets/**/*.*" Folder="plugins/Assets/%(RecursiveDir)" />
         <ThunderstoreFile Visible="false" Include="TestPacks/**/*.*" Folder="plugins/TestPacks/%(RecursiveDir)" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Include="..\Documentation\1.Your-First-Audio-Pack.md">
+        <Link>AtlyssModAudio\Documentation\1.Your-First-Audio-Pack.md</Link>
+      </Content>
     </ItemGroup>
 </Project>
