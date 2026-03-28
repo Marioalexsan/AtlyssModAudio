@@ -17,6 +17,11 @@ public class AtlyssGame : ModAudioGame
     }
     
     public static Dictionary<string, AudioMixerGroup> LoadedMixerGroups = [];
+
+    private bool _actionWasPlaying = false;
+    private bool _daytimeWasPlaying = false;
+    private bool _nightWasPlaying = false;
+    private bool _nullWasPlaying = false;
     
     public override void OnReload()
     {
@@ -45,6 +50,7 @@ public class AtlyssGame : ModAudioGame
         var mapInstances = UnityEngine.Object.FindObjectsByType<MapInstance>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (var map in mapInstances)
         {
+            map._musicBeginBuffer = map._timeBeforeMusicStart - 1f;
             map._musicStarted = false;
         }
     }
@@ -66,29 +72,44 @@ public class AtlyssGame : ModAudioGame
         MapInstance_Handle_AudioSettings.ForceCombatMusic = enabled;
     }
 
-    public override bool MatchesAlias(ModAudioSource audio, string alias)
+    public override bool MatchesAlias(ModAudioSource audio, ReadOnlySpan<char> alias)
     {
+        // PS: This method is in a hot path, make it efficient!
+        bool isMapAlias = false;
+
+        if (alias.StartsWith("atlyss_map_"))
+        {
+            alias = alias.Slice("atlyss_map_".Length);
+            isMapAlias = true;
+        }
+        else if (alias.StartsWith("map_"))
+        {
+            alias = alias.Slice("map_".Length);
+            isMapAlias = true;
+        }
+        
         // Second form is deprecated, but I'll keep support for it
-        if (alias.StartsWith("modaudio_atlyss_map_") || alias.StartsWith("modaudio_map_"))
+        if (isMapAlias)
         {
             if (!Player._mainPlayer || !Player._mainPlayer._playerMapInstance)
                 return false;
-            
-            var aliasData = alias.StartsWith("modaudio_atlyss_map_")
-                ? alias.Substring("modaudio_atlyss_map_".Length)
-                : alias.Substring("modaudio_map_".Length);
 
             var map = Player._mainPlayer._playerMapInstance;
             var mapName = GetCleanMapName(map);
 
-            if (aliasData == $"{mapName}_day" && map._daytimeMusic == audio.Audio)
-                return true;
-            else if (aliasData == $"{mapName}_night" && map._nightMusic == audio.Audio)
-                return true;
-            else if (aliasData == $"{mapName}_action" && map._actionMusic == audio.Audio)
-                return true;
-            else if (aliasData == $"{mapName}_null" && map._nullMusic == audio.Audio)
-                return true;
+            if (!alias.StartsWith(mapName))
+                return false;
+
+            alias = alias.Slice(mapName.Length);
+            
+            if (alias is "_day")
+                return map._daytimeMusic == audio.Audio;
+            else if (alias is "_night")
+                return map._nightMusic == audio.Audio;
+            else if (alias is "_action")
+                return map._actionMusic == audio.Audio;
+            else if (alias is "_null")
+                return map._nullMusic == audio.Audio;
             else
                 return false;
         }
@@ -118,8 +139,16 @@ public class AtlyssGame : ModAudioGame
 
     public static string GetCleanMapName(MapInstance instance)
     {
-        return string.Concat(instance._mapName.ToLower().Where(x => 'a' <= x && x <= 'z'));
+        // Small optimization, as a treat
+        if (instance == _cachedMap)
+            return _cachedMapCleanedName;
+
+        _cachedMap = instance;
+        return _cachedMapCleanedName = string.Concat(instance._mapName.ToLower().Where(x => 'a' <= x && x <= 'z'));
     }
+
+    private static MapInstance? _cachedMap = null;
+    private static string _cachedMapCleanedName = "";
 
     public override bool TryLoadVanillaClip(string identifier, [NotNullWhen(true)] out AudioClip? clip)
     {

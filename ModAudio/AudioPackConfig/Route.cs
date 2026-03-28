@@ -37,6 +37,12 @@ public class Route
     /// A list of clips that will be affected by this route.
     /// </summary>
     public List<string> OriginalClips { get; set; } = [];
+    
+    /// <summary>
+    /// A list of aliases that will be affected by this route.
+    /// These aliases are stripped of the "moaudio_" alias prefix.
+    /// </summary>
+    public List<string> OriginalClipAliases { get; set; } = [];
 
     /// <summary>
     /// A list of clips to be used as replacements for this route.

@@ -200,7 +200,7 @@ static class MapInstance_Handle_AudioSettings
 
     internal static bool NullMusicSourceIsSet(AudioSource nullMusic)
     {
-        bool returnValue = nullMusic && !nullMusic.clip.name.StartsWith("modaudio_map_") && nullMusic.clip != AudioEngine.DisableClip;
+        bool returnValue = nullMusic && !nullMusic.clip.name.StartsWith("modaudio_internal_map_") && nullMusic.clip != AudioEngine.DisableClip;
         return returnValue;
     }
 
@@ -219,10 +219,12 @@ static class MapInstance_Handle_AudioSettings
     {
         // TODO: Genuinely deranged solution
         var modSource = AudioEngine.GetOrCreateModAudioSource(source);
-        AudioEngine.Route(modSource, true);
+        AudioEngine.Route(modSource, true, skipOverlays: true);
 
         if (NullMusicSourceIsSet(source))
         {
+            modSource.RevertSource();
+            AudioEngine.Route(modSource, true, skipOverlays: false);
             modSource.PlayWithoutRouting();
             instance._musicStarted = true;
         }

@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Games that don't have any official support will show a warning in the console about it
 - **Important: ModAudio now loads and unloads all audio on demand**
   - This will significantly reduce both load times and memory usage, but it may introduce some stuttering when the audio is first used
+  - Might have a significant impact in the case of big audio packs, like Vixine's Chaos Soundpack, or TZH's Death's Door Audio
+  - By default, audio clips are unloaded if 150 seconds pass without them being used. This duration be tweaked in the configuration file, but it is strongly recommended to keep the default value intact
 - Added a route effect `map_name` that specifies the map on which the route should be active
   - Map names are specified in the same way they are shown in-game, i.e. `map_name : Crescent Road`
   - A special value of `map_name : ___nomap___` can be used to make the route apply only when there is no map available (main menu, etc.)
@@ -66,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - This corresponds to about 20 seconds of 44100 Hz stereo audio
   - This threshold is more aggressive than the previous one; it will result in more existing music being streamed 
     instead of loaded in memory, which should somewhat reduce issues with memory usage
+  - This threshold is configurable through the configuration file, but it's strongly suggested to keep the default value intact 
 - The audio debug log now uses a circular buffer, meaning it will display the latest 10000 messages instead of clearing out half of the messages whenever it reaches that limit
 - Audio debug log's text filter now has an option to match by exact word
 - Audio debug log's UI has been reorganized

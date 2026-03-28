@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Logging;
+using HarmonyLib;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
 using Marioalexsan.ModAudio.Scripting.Data;
@@ -22,6 +23,9 @@ public enum SourceDetectionRate
 internal static class AudioEngine
 {
     private static readonly ProfilerMarker _routing = new ProfilerMarker("ModAudio Route()");
+    private static readonly ProfilerMarker _routingReplacements = new ProfilerMarker("ModAudio Route() replacements");
+    private static readonly ProfilerMarker _routingOverlays = new ProfilerMarker("ModAudio Route() overlays");
+    private static readonly ProfilerMarker _sourceMatching = new ProfilerMarker("ModAudio Route() source matching mapname");
     private static readonly ProfilerMarker _playRouting = new ProfilerMarker("ModAudio Route() from AudioPlayed()");
     private static readonly ProfilerMarker _detectNewSources = new ProfilerMarker("ModAudio Update() fetch audio sources");
     private static readonly ProfilerMarker _playOnAwakeHandling = new ProfilerMarker("ModAudio Update() playOnAwake handling");
@@ -57,6 +61,9 @@ internal static class AudioEngine
 
     // Temporary data for routing
     private static readonly Dictionary<Route, TargetGroupData> CachedRoutingTargetGroupData = [];
+    
+    // Temporary data for selecting routes without allocations
+    private static readonly List<(AudioPack Pack, Route Route)> CachedReplacementSelectionList = new List<(AudioPack Pack, Route Route)>(128);
     
     // Setting this too low might cause it to fail for playOnAwake activeSources
     // This is due to the detection method in Update(), which relies on scanning audio activeSources every frame
@@ -170,11 +177,17 @@ internal static class AudioEngine
         }
     }
 
+    internal static void TriggerGarbageCollection()
+    {
+        // Hacky, but will do
+        LastGarbageCollection = DateTime.Now - TimeSpan.FromDays(1);
+    }
+
     private static void RunGarbageCollection()
     {
-        Logging.LogDebug("Running garbage collection for custom audio");
+        AudioDebugDisplay.LogEngine(LogLevel.Debug, "Running garbage collection for custom audio");
         
-        var canCollectAudioBefore = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+        var canCollectAudioBefore = DateTime.UtcNow - TimeSpan.FromSeconds(ModAudio.AudioCacheTimeInSeconds.Value);
         
         foreach (var pack in AudioPacks)
         {
@@ -225,7 +238,7 @@ internal static class AudioEngine
         
         // No uses found, clean it up
         
-        Logging.LogDebug($"Garbage collecting clip {clipName} from pack {pack.Config.Id}");
+        AudioDebugDisplay.LogEngine(LogLevel.Debug, $"Garbage collecting clip {clipName} from pack {pack.Config.Id}");
 
         UnityEngine.Object.Destroy(clip);
         
@@ -491,7 +504,7 @@ internal static class AudioEngine
         }
     }
 
-    private static void DetectNewSources()
+    internal static void DetectNewSources()
     {
         // Note: This is mainly to detect playOnAwake audio sources that have been played directly by the engine and not via the script API
         // It's not really possible to detect them otherwise; you don't get any notifications via hooks for those.
@@ -904,9 +917,9 @@ internal static class AudioEngine
 
     private static bool MatchesSource(ModAudioSource source, AudioStepState state, Route route)
     {
-        var originalClipName = state.Clip?.name;
+        var clipNameToMatch = state.Clip?.name;
 
-        if (originalClipName == null)
+        if (clipNameToMatch == null)
             return false;
 
         if (route.MapNameCondition.Count > 0)
@@ -933,20 +946,26 @@ internal static class AudioEngine
                     break;
                 }
             }
-
+            
             if (!matchesMap)
                 return false;
         }
         
+
         for (int i = 0; i < route.OriginalClips.Count; i++)
         {
-            var originalClip = route.OriginalClips[i];
+            if (route.OriginalClips[i] == clipNameToMatch)
+            {
+                return true;
+            }
+        }
 
-            if (AudioEngine.Game.MatchesAlias(source, originalClip))
+        for (int i = 0; i < route.OriginalClipAliases.Count; i++)
+        {
+            if (AudioEngine.Game.MatchesAlias(source, route.OriginalClipAliases[i]))
+            {
                 return true;
-                
-            if (originalClip == originalClipName)
-                return true;
+            }
         }
         
         return false;
@@ -958,8 +977,9 @@ internal static class AudioEngine
     /// </summary>
     /// <param name="source">The audio source to selectedRoute</param>
     /// <param name="reuseOldRoutesIfPossible">Reuse previously exiting routes if they still apply somewhat?</param>
+    /// <param name="skipOverlays">True to skip overlays, false (default) to play them.</param>
     /// <returns>True if the source was rerouted or modified, false otherwise (for example when there are no routes defined)</returns>
-    internal static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible)
+    internal static bool Route(ModAudioSource source, bool reuseOldRoutesIfPossible, bool skipOverlays = false)
     {
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false; // Do not apply changes
@@ -985,12 +1005,19 @@ internal static class AudioEngine
 
             var stateBeforeRouting = source.AppliedState;
 
+            _routingReplacements.Begin();
             var replacementApplied = ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null);
+            _routingReplacements.End();
 
             if (source.HasFlag(AudioFlags.HasEncounteredErrors))
                 break; // Stop further routing or overlays
 
-            PlayOverlays(source, stateBeforeRouting, source.LatestRoute?.Route);
+            if (!skipOverlays)
+            {
+                _routingOverlays.Begin();
+                PlayOverlays(source, stateBeforeRouting, source.LatestRoute?.Route);
+                _routingOverlays.End();
+            }
 
             if (!replacementApplied)
                 break;
@@ -1102,6 +1129,7 @@ internal static class AudioEngine
 
         List<(AudioPack Pack, Route Route)> overlays = [];
 
+        _sourceMatching.Begin();
         for (int i = 0; i < AudioPacks.Count; i++)
         {
             var pack = AudioPacks[i];
@@ -1117,7 +1145,7 @@ internal static class AudioEngine
 
                 if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
                     continue;
-
+                
                 if (!(route.OverlayClips.Count > 0 && MatchesSource(source, stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || route.ReplacementClips.Count == 0 || replacementRoute == route)))
                     continue;
 
@@ -1127,12 +1155,73 @@ internal static class AudioEngine
                     overlays.Add((pack, route));
             }
         }
+        _sourceMatching.End();
 
         for (int i = 0; i < overlays.Count; i++)
         {
             var (pack, route) = overlays[i];
 
             PlayOverlay(source, pack, route);
+        }
+    }
+
+    // Extremely basic method, all things considered
+    // This should only be used to preload audio detected after a scene load due to performance considerations
+    internal static void TryPreloadSceneClips()
+    {
+        var trackedSources = ForeachCache<KeyValuePair<AudioSource, ModAudioSource>>.CacheFrom(TrackedSources);
+        for (int i = 0; i < trackedSources.Length; i++)
+            TryPreloadClips(trackedSources[i].Value);
+    }
+    
+    private static void TryPreloadClips(ModAudioSource source)
+    {
+        var initialClip = source.InitialState.Clip?.name;
+
+        if (initialClip == null)
+            return;
+        
+        // Get a replacement from routes
+        for (int i = 0; i < AudioPacks.Count; i++)
+        {
+            var pack = AudioPacks[i];
+
+            if (!pack.HasFlag(PackFlags.Enabled))
+                continue;
+
+            var routes = pack.Config.Routes;
+
+            for (int k = 0; k < routes.Count; k++)
+            {
+                var route = routes[k];
+
+                bool matches = false;
+
+                if (route.OriginalClips.Contains(initialClip))
+                {
+                    matches = true;
+                }
+                else
+                {
+                    for (int aliasIndex = 0; aliasIndex < route.OriginalClipAliases.Count; aliasIndex++)
+                    {
+                        if (AudioEngine.Game.MatchesAlias(source, route.OriginalClipAliases[i]))
+                        {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (matches)
+                {
+                    for (int clipIndex = 0; clipIndex < route.ReplacementClips.Count; clipIndex++)
+                        pack.QueuePreload(route.ReplacementClips[clipIndex].Name);
+                    
+                    for (int clipIndex = 0; clipIndex < route.OverlayClips.Count; clipIndex++)
+                        pack.QueuePreload(route.OverlayClips[clipIndex].Name);
+                }
+            }
         }
     }
 
@@ -1171,13 +1260,14 @@ internal static class AudioEngine
         }
 
         // Get a replacement from routes
-        var replacements = new List<(AudioPack Pack, Route Route)>();
+        CachedReplacementSelectionList.Clear();
+        _sourceMatching.Begin();
 
         if (preferredPackRoute != null)
-            AddReplacementIfEligible(source, preferredPackRoute.Value.Pack, preferredPackRoute.Value.Route, replacements);
+            AddReplacementIfEligible(source, preferredPackRoute.Value.Pack, preferredPackRoute.Value.Route, CachedReplacementSelectionList);
 
         // Check replacements if there is no preferred route - or if it was skipped for some reason
-        if (replacements.Count == 0)
+        if (CachedReplacementSelectionList.Count == 0)
         {
             for (int i = 0; i < AudioPacks.Count; i++)
             {
@@ -1195,22 +1285,27 @@ internal static class AudioEngine
                     if (preferredPackRoute != null && route == preferredPackRoute.Value.Route)
                         continue; // Checked earlier
 
-                    AddReplacementIfEligible(source, pack, route, replacements);
+                    AddReplacementIfEligible(source, pack, route, CachedReplacementSelectionList);
                 }
             }
         }
-
-        if (replacements.Count == 0)
+        
+        _sourceMatching.End();
+        
+        if (CachedReplacementSelectionList.Count == 0)
             return false;
 
         if (source.RouteCount >= ModAudioSource.MaxChainedRoutes)
         {
             // This is a sanity check, normally this should be prevented earlier in the call stack
+            // TODO: Is this really needed? It's already checked higher up the call stack
             Logging.LogWarning("Tried to route an audio source that has reached max chained routes! Aborting routing operation. Please notify the mod developer about this!");
+            CachedReplacementSelectionList.Clear();
             return false;
         }
 
-        var (selectedPack, selectedRoute) = Utils.SelectRandomWeighted(RNG, replacements);
+        var (selectedPack, selectedRoute) = Utils.SelectRandomWeighted(RNG, CachedReplacementSelectionList);
+        CachedReplacementSelectionList.Clear();
 
         // Apply overall effects
 

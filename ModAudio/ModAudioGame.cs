@@ -9,6 +9,12 @@ namespace Marioalexsan.ModAudio;
 public class ModAudioGame
 {
     /// <summary>
+    /// The starting prefix of audio aliases.
+    /// Aliases *must* start with this prefix, otherwise they will be treated as regular clips for performance reasons!
+    /// </summary>
+    public const string AliasNameStart = "modaudio_";
+    
+    /// <summary>
     /// The true type should be ILuaUserData!
     /// </summary>
     public object? GameData { get; set; }
@@ -42,12 +48,13 @@ public class ModAudioGame
 
     /// <summary>
     /// Checks if an audio source matches an alias defined by the game.
-    /// Ideally, the aliases themselves should follow the format modaudio_{gameIdentifier}_{aliasIdentifier}.
+    /// The aliases themselves follow the format modaudio_{gameIdentifier}_{aliasIdentifier}.
+    /// This method will receive the alias without the associated prefix!
     /// </summary>
     /// <param name="audio">Audio source to check</param>
     /// <param name="alias">A clip name to check for aliases</param>
     /// <returns>Whenever the audio source matches or not</returns>
-    public virtual bool MatchesAlias(ModAudioSource audio, string alias)
+    public virtual bool MatchesAlias(ModAudioSource audio, ReadOnlySpan<char> alias)
     {
         // Return nothing
         return false;

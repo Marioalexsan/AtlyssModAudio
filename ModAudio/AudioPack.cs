@@ -1,5 +1,7 @@
 ﻿using Marioalexsan.ModAudio.Scripting;
 using System.Runtime.CompilerServices;
+using BepInEx.Logging;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -38,15 +40,22 @@ public class AudioPack : IDisposable
 
     // These clips are loaded / streamed when needed
     public Dictionary<string, AudioData> ReadyAudio { get; } = [];
-    private (string ClipName, Task<AudioClipLoader.LoadResult>)? PendingClipLoad;
+    private (string ClipName, Task<AudioClipLoader.LoadResult> LoadTask)? PendingClipLoad;
 
-    public Queue<string> PreloadQueue { get; } = [];
+    private Queue<string> PreloadQueue { get; } = [];
     
     // Statistics
     public int CurrentStreamedClips { get; set; }
     public int CurrentInMemoryClips { get; set; }
+    public int CurrentlyWaitingForLoad => PreloadQueue.Count;
 
     public IModAudioScript? Script { get; set; }
+
+    public void QueuePreload(string clipName)
+    {
+        if (!PreloadQueue.Contains(clipName))
+            PreloadQueue.Enqueue(clipName);
+    }
 
     public void Dispose()
     {
@@ -74,7 +83,15 @@ public class AudioPack : IDisposable
 
     public void TryHandleNextPreload()
     {
-        if (PendingClipLoad.HasValue || PreloadQueue.Count == 0)
+        if (PreloadQueue.Count == 0)
+            return;
+
+        // Check if whatever we have right now is done
+        if (PendingClipLoad.HasValue && PendingClipLoad.Value.LoadTask.IsCompleted)
+            FinalizeLoadIfAny();
+
+        // Do we have anything else to preload right now?
+        if (PendingClipLoad.HasValue)
             return;
 
         string? clipToLoad = null;
@@ -82,6 +99,9 @@ public class AudioPack : IDisposable
         while (PreloadQueue.Count > 0)
         {
             var nextClip = PreloadQueue.Dequeue();
+
+            if (AudioEngine.IsSpecialClip(nextClip))
+                continue; // Skip these
 
             if (!ReadyAudio.ContainsKey(nextClip))
             {
@@ -98,23 +118,27 @@ public class AudioPack : IDisposable
         
         if (clipData == null || resolvedFilePath == null)
         {
-            Logging.LogWarning($"Failed to preload clip {clipToLoad}: no such clip data in the pack!");
+            Logging.LogWarning($"Failed to load clip {clipToLoad}: no such clip data in the pack!");
             return;
         }
         
-        Logging.LogDebug($"Preloading {clipToLoad}...");
+        AudioDebugDisplay.LogEngine(LogLevel.Debug, $"Loading {clipToLoad} from pack {Config.Id}...");
         
         PendingClipLoad = (clipToLoad, Task.Run(() =>
         {
             return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
         }));
     }
+    
+    private static readonly ProfilerMarker _loadFinalizer = new ProfilerMarker("ModAudio time spent finalizing loads");
 
     public void FinalizeLoadIfAny()
     {
         if (!PendingClipLoad.HasValue)
             return;
-            
+     
+        _loadFinalizer.Begin();
+        
         var (clipName, loadTask) = PendingClipLoad.Value;
 
         IAudioStream? openStream = null;
@@ -137,6 +161,7 @@ public class AudioPack : IDisposable
                 Logging.LogError("This is likely a logic error, please notify the mod developer about this!");
                 openStream?.Dispose();
                 PendingClipLoad = null;
+                _loadFinalizer.End();
                 return;
             }
 
@@ -151,7 +176,7 @@ public class AudioPack : IDisposable
                 CurrentInMemoryClips++;
             }
             
-            Logging.LogDebug($"Fully loaded clip {clipName} in {(openStream != null ? "streamed" : "in-memory")} mode!");
+            AudioDebugDisplay.LogEngine(LogLevel.Debug, $"Successfully loaded clip {clipName} in {(openStream != null ? "streamed" : "in-memory")} mode!");
         }
         catch (Exception e)
         {
@@ -169,6 +194,7 @@ public class AudioPack : IDisposable
             LastUsed = DateTime.UtcNow
         };
         PendingClipLoad = null;
+        _loadFinalizer.End();
     }
 
     public bool LoadClip(string name, out AudioClip? clip)

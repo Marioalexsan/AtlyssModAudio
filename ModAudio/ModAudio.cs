@@ -8,6 +8,7 @@ using HarmonyLib;
 using Marioalexsan.ModAudio.HarmonyPatches;
 using Nessie.ATLYSS.EasySettings;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Marioalexsan.ModAudio;
 
@@ -18,9 +19,6 @@ public class ModAudio : MonoBehaviour
     public const float MinWeight = 0.001f;
     public const float MaxWeight = 1000f;
     public const float DefaultWeight = 1f;
-
-    // Default values corresponds to 44100 Hz, stereo, float samples, 20 seconds of audio
-    public static long AudioStreamingLimitBytes { get; internal set; } = 44100 * 2 * 4 * 20;
 
     internal static ManualLogSource Logger { get; set; } = null!;
     internal static ConfigFile Config { get; set; } = null!;
@@ -137,6 +135,15 @@ public class ModAudio : MonoBehaviour
                 });
             }
         }
+        
+        SceneManager.sceneLoaded += OnNewScene;
+    }
+
+    private void OnNewScene(Scene scene, LoadSceneMode loadMode)
+    {
+        AudioEngine.TriggerGarbageCollection();
+        AudioEngine.DetectNewSources();
+        AudioEngine.TryPreloadSceneClips();
     }
 
     private static void SetupBaseAudioPack()
@@ -155,6 +162,10 @@ public class ModAudio : MonoBehaviour
             }
         }
     }
+    
+    // For debugging / tuning - not present in EasySettings
+    public static ConfigEntry<int> AudioStreamingLimitBytes { get; internal set; } = null!;
+    public static ConfigEntry<int> AudioCacheTimeInSeconds { get; internal set; } = null!;
 
     public static ConfigEntry<bool> ModAudioEnabled { get; internal set; } = null!;
     public static ConfigEntry<bool> EasterEggsEnabled { get; internal set; } = null!;

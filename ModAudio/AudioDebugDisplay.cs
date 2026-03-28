@@ -287,6 +287,7 @@ public class AudioDebugDisplay : MonoBehaviour
             GUILayout.Label($"Total custom clips: {pack.Config.CustomClips.Count}");
             GUILayout.Label($"  Currently streaming: {pack.CurrentStreamedClips}");
             GUILayout.Label($"  Currently loaded in memory: {pack.CurrentInMemoryClips}");
+            GUILayout.Label($"  Currently waiting to be loaded: {pack.CurrentlyWaitingForLoad}");
             GUILayout.Label($"Clips ready: {pack.ReadyAudio.Count}");
 
             GUILayout.EndScrollView();
@@ -331,7 +332,7 @@ public class AudioDebugDisplay : MonoBehaviour
             _bufferStart = _bufferEnd;
         }
 
-        _totalMessages = _bufferStart <= _bufferEnd ? _bufferEnd - _bufferStart : _circularBuffer.Length - _bufferStart - _bufferEnd;
+        _totalMessages = _bufferStart <= _bufferEnd ? _bufferEnd - _bufferStart : _circularBuffer.Length - _bufferStart + _bufferEnd;
         _totalErrors = 0;
         _totalWarnings = 0;
 

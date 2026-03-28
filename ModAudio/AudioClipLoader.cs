@@ -56,16 +56,6 @@ public static class AudioClipLoader
     }
 
     /// <summary>
-    /// Checks if the given audio file would be best streamed or not.
-    /// </summary>
-    public static bool ShouldStreamFile(string path)
-    {
-        using var stream = GetStream(path);
-        long approxUncompressedSizeBytes = stream.TotalFrames * stream.ChannelsPerFrame * stream.Frequency * 4;
-        return approxUncompressedSizeBytes > ModAudio.AudioStreamingLimitBytes;
-    }
-
-    /// <summary>
     /// Loads or streams an audio clip from disk.
     /// If it's streamed, openedStream will have the resulting stream to keep alive.
     /// The decision to stream / load is done based on a memory cutoff corresponding to 20 seconds of stereo audio @ 44100Hz.
@@ -79,7 +69,7 @@ public static class AudioClipLoader
         if (useStreaming == null)
         {
             long approxUncompressedSizeBytes = stream.TotalFrames * stream.ChannelsPerFrame * 4;
-            useStreaming = approxUncompressedSizeBytes > ModAudio.AudioStreamingLimitBytes;
+            useStreaming = approxUncompressedSizeBytes > ModAudio.AudioStreamingLimitBytes.Value;
         }
         
         if (useStreaming.Value)

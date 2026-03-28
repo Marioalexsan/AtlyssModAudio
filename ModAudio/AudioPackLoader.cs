@@ -187,7 +187,6 @@ public static class AudioPackLoader
     private static void SearchAndLoadPacks(List<AudioPack> existingPacks, string folderPath)
     {
         var routesFormatRootRouteFile = Path.Combine(folderPath, RoutesConfigName);
-        var routesFormatRootScriptFile = Path.Combine(folderPath, RoutesScriptName);
 
         var routeFiles = Directory.EnumerateFiles(folderPath, "__routes.*.txt");
 
@@ -260,7 +259,6 @@ public static class AudioPackLoader
         }
 
         LoadScriptData(folderPath, pack);
-        LoadCustomClips(folderPath, pack, false);
 
         return pack;
     }
@@ -316,48 +314,6 @@ public static class AudioPackLoader
         }
 
         return clipPath;
-    }
-
-    public static void LoadCustomClips(string rootPath, AudioPack pack, bool extensionless)
-    {
-        HashSet<string> handledClips = [];
-        
-        foreach (var clipData in pack.Config.CustomClips)
-        {
-            if (!handledClips.Add(clipData.Name))
-            {
-                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.DuplicateClipId(clipData.Path, clipData.Name));
-                pack.SetFlag(PackFlags.HasEncounteredErrors);
-                continue;
-            }
-
-            string? clipPath = ResolvePath(pack, clipData.Name);
-
-            if (clipPath == null)
-                continue;
-
-            long fileSize = new FileInfo(clipPath).Length;
-            bool useStreaming = fileSize >= FileSizeLimitForLoading;
-
-            if (useStreaming && !AudioClipLoader.SupportedStreamExtensions.Any(clipPath.EndsWith))
-            {
-                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.AudioCannotBeStreamed(clipPath, fileSize));
-                useStreaming = false;
-            }
-
-            try
-            {
-                AudioDebugDisplay.LogPack(LogLevel.Info, Texts.LoadingClip(clipPath, clipData.Name, useStreaming));
-                
-                // TODO: Preload clips?
-            }
-            catch (Exception e)
-            {
-                AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to load {clipData.Name} from {AliasRootPath(clipPath)}!");
-                AudioDebugDisplay.LogPack(LogLevel.Error, $"Exception: {e}");
-                pack.SetFlag(PackFlags.HasEncounteredErrors);
-            }
-        }
     }
 
     public static void LoadScriptData(string folderPath, AudioPack pack)

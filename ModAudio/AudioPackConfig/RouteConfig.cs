@@ -100,7 +100,8 @@ public class RouteConfig
 
             var route = new Route
             {
-                OriginalClips = clipNames
+                OriginalClips = clipNames.Where(x => !x.StartsWith(ModAudioGame.AliasNameStart)).ToList(),
+                OriginalClipAliases = clipNames.Where(x => x.StartsWith(ModAudioGame.AliasNameStart)).Select(x => x.Substring(ModAudioGame.AliasNameStart.Length)).ToList(),
             };
 
             for (int i = 0; i < replacements.Count; i++)
@@ -521,7 +522,8 @@ public class RouteConfig
 
             pack.Routes.Add(new Route()
             {
-                OriginalClips = [clipName],
+                OriginalClips = !clipName.StartsWith(ModAudioGame.AliasNameStart) ? [clipName] : [],
+                OriginalClipAliases = clipName.StartsWith(ModAudioGame.AliasNameStart) ? [clipName.Substring(ModAudioGame.AliasNameStart.Length)] : [],
                 ReplacementClips = [new() {
                         Name = replacementName
                     }],

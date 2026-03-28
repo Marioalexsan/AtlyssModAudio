@@ -22,7 +22,7 @@ internal static class MapInstance_Awake
         const int EmptyClipSizeInSamples = 16384; // 0.37 seconds
             
         source = map.gameObject.AddComponent<AudioSource>();
-        source.clip = AudioClipLoader.GenerateEmptyClip($"modaudio_map_{type}", EmptyClipSizeInSamples);
+        source.clip = AudioClipLoader.GenerateEmptyClip($"modaudio_internal_map_{type}", EmptyClipSizeInSamples);
         source.playOnAwake = false;
         source.volume = 0;
         source.loop = true;

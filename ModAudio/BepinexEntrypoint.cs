@@ -33,6 +33,27 @@ public class BepinexEntrypoint : BaseUnityPlugin
         ModAudio.EasterEggsEnabled = Config.Bind("Misc", nameof(ModAudio.EasterEggsEnabled), true, "Whenever ModAudio's easter egg features are enabled or not.");
         ModAudio.EnableTestPacks = Config.Bind("Misc", nameof(ModAudio.EnableTestPacks), false, "Enable built-in test packs for ModAudio. These are used internally to test the functionality of the mod.");
 
+        ModAudio.AudioStreamingLimitBytes = Config.Bind(
+            "Experimental",
+            nameof(ModAudio.AudioStreamingLimitBytes),
+            44100 * 2 * 4 * 20,
+            "The uncompressed audio size threshold (in bytes) for streaming. ModAudio will stream audio if it would take up more space than this in memory. " +
+            "Default value corresponds to 20 seconds of stereo audio at 44100 Hz (assuming float samples at 4 bytes / sample). " +
+            "Lower values reduce memory usage and load times due to switching to streaming for more clips, but may trigger issues with Unity's audio system. " +
+            "**Do not modify this unless you know what you're doing!**"
+        );
+        
+        // Default values corresponds to 44100 Hz, stereo, float samples, 20 seconds of audio
+        ModAudio.AudioCacheTimeInSeconds = Config.Bind(
+            "Experimental",
+            nameof(ModAudio.AudioCacheTimeInSeconds),
+            150,
+            "Determines how long an audio clip will stay loaded for before it's cleaned up (measured in seconds). " +
+            "This duration is reset whenever an audio clip is used, i.e. when playing it. " +
+            "Once this threshold is reached, ModAudio will try unloading the clip to reduce memory usage." +
+            "Higher durations reduce stuttering associated with reloading files, lower durations might reduce memory usage." +
+            "**Do not modify this unless you know what you're doing!**"
+        );
     }
 
     public void Awake()
