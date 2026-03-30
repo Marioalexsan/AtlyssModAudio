@@ -1,14 +1,9 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics.CodeAnalysis;
 using BepInEx;
 using BepInEx.Logging;
-using HarmonyLib;
-using Marioalexsan.ModAudio.HarmonyPatches;
 using Marioalexsan.ModAudio.Scripting;
-using Marioalexsan.ModAudio.Scripting.Data;
 using Newtonsoft.Json;
-using Unity.Profiling;
 using UnityEngine;
-using UnityEngine.Audio;
 
 namespace Marioalexsan.ModAudio;
 
@@ -22,18 +17,6 @@ public enum SourceDetectionRate
 
 internal static class AudioEngine
 {
-    private static readonly ProfilerMarker _routing = new ProfilerMarker("ModAudio Route()");
-    private static readonly ProfilerMarker _routingReplacements = new ProfilerMarker("ModAudio Route() replacements");
-    private static readonly ProfilerMarker _routingOverlays = new ProfilerMarker("ModAudio Route() overlays");
-    private static readonly ProfilerMarker _sourceMatching = new ProfilerMarker("ModAudio Route() source matching mapname");
-    private static readonly ProfilerMarker _playRouting = new ProfilerMarker("ModAudio Route() from AudioPlayed()");
-    private static readonly ProfilerMarker _detectNewSources = new ProfilerMarker("ModAudio Update() fetch audio sources");
-    private static readonly ProfilerMarker _playOnAwakeHandling = new ProfilerMarker("ModAudio Update() playOnAwake handling");
-    private static readonly ProfilerMarker _executeUpdate = new ProfilerMarker("ModAudio Update() execute script updates");
-    private static readonly ProfilerMarker _executeTargetGroups = new ProfilerMarker("ModAudio Update() execute script target groups");
-    private static readonly ProfilerMarker _cleanupSources = new ProfilerMarker("ModAudio Update() cleanup sources");
-    private static readonly ProfilerMarker _updateTargeting = new ProfilerMarker("ModAudio Update() update targeting");
-
     public const string DefaultClipKeyword = "___default___";
     public const string EmptyClipKeyword = "___nothing___";
     public const string DisableClipKeyword = "___disable___";
@@ -74,6 +57,24 @@ internal static class AudioEngine
     public static bool IsSpecialClip(string name)
     {
         return name == DefaultClipKeyword || name == EmptyClipKeyword || name == ErrorClipKeyword || name == DisableClipKeyword;
+    }
+
+    public static bool IsVanillaClip(string name, [NotNullWhen(true)] out string? actualClip)
+    {
+        if (name.StartsWith("<atlyss>"))
+        {
+            actualClip = name.Substring("<atlyss>".Length);
+            return true;
+        }
+        
+        if (name.StartsWith("<game>"))
+        {
+            actualClip = name.Substring("<game>".Length);
+            return true;
+        }
+
+        actualClip = name;
+        return false;
     }
 
     internal static AudioClip EmptyClip => _emptyClip ??= AudioClipLoader.GenerateEmptyClip(EmptyClipKeyword, EmptyClipSizeInSamples);
@@ -172,8 +173,8 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(SoftReloadScripts)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(SoftReloadScripts)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
         }
     }
 
@@ -269,21 +270,21 @@ internal static class AudioEngine
 
             const string IssuesLink = "https://github.com/Marioalexsan/AtlyssModAudio/issues/";
             
-            Logging.LogWarning($"Hey there! It seems like you're running ModAudio on \"{Application.productName}\".");
-            Logging.LogWarning($"This game has experimental support at best. Lua scripting might be limited, and no game specific features will be available.");
-            Logging.LogWarning($"If you find any issues, bugs, or have constructive feedback, please report them at {IssuesLink}.");
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"Hey there! It seems like you're running ModAudio on \"{Application.productName}\".");
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"This game has experimental support at best. Lua scripting might be limited, and no game specific features will be available.");
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"If you find any issues, bugs, or have constructive feedback, please report them at {IssuesLink}.");
         }
 
         try
         {
-            Logging.LogInfo("Reloading engine! This might take a while...");
+            AudioDebugDisplay.LogEngine(LogLevel.Info, "Reloading engine! This might take a while...");
 
             // Reset internal state
             Game.OnReload();
 
             if (hardReload)
             {
-                Logging.LogInfo("Clearing loaded vanilla clips...");
+                AudioDebugDisplay.LogEngine(LogLevel.Info, "Clearing loaded vanilla clips...");
                 LoadedVanillaClips.Clear();
             }
 
@@ -335,7 +336,7 @@ internal static class AudioEngine
 
             if (hardReload)
             {
-                Logging.LogInfo("Reloading mod pack overrides...");
+                AudioDebugDisplay.LogEngine(LogLevel.Info, "Reloading mod pack overrides...");
                 
                 ModpackOverrides.Clear();
 
@@ -356,17 +357,17 @@ internal static class AudioEngine
                         {
                             var overrides = JsonConvert.DeserializeObject<ModpackOverride[]>(File.ReadAllText(modpackOverridePath)) ?? throw new NullReferenceException("Modpack override deserialized to null!");
                             ModpackOverrides.AddRange(overrides);
-                            Logging.LogDebug($"Loaded modpack overrides from {modpackOverridePath}!");
+                            AudioDebugDisplay.LogEngine(LogLevel.Info, $"Loaded modpack overrides from {modpackOverridePath}!");
                         }
                         catch (Exception e)
                         {
-                            Logging.LogWarning($"Couldn't load modpack overrides from {modpackOverridePath}!");
-                            Logging.LogWarning(e.ToString());
+                            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"Couldn't load modpack overrides from {modpackOverridePath}!");
+                            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"Exception data: {e}");
                         }
                     }
                 }
                 
-                Logging.LogInfo("Reloading audio packs...");
+                AudioDebugDisplay.LogEngine(LogLevel.Info, "Reloading audio packs...");
 
                 // Clean up packs
                 foreach (var pack in AudioPacks)
@@ -377,25 +378,7 @@ internal static class AudioEngine
                 ModAudio.InitializePackConfiguration(); // TODO I wish ModAudio plugin ref wouldn't be here
             }
 
-            Logging.LogInfo("Preloading audio data...");
-            foreach (var pack in AudioPacks)
-            {
-                // TODO: Solve preloading small audio files
-                // if (pack.HasFlag(PackFlags.Enabled) && pack.ClipsToPreload.Count > 0)
-                // {
-                //     // If a selectedPack is enabled, we should preload all of the in-memory clips
-                //     // Opening a ton of streams at the start is not great though, so those remain on-demand
-                //
-                //     var clipsToPreload = pack.ClipsToPreload.ToArray();
-                //
-                //     foreach (var clip in clipsToPreload)
-                //     {
-                //         _ = pack.LoadClip(clip, out _);
-                //     }
-                // }
-            }
-
-            Logging.LogInfo("Restarting audio sources...");
+            AudioDebugDisplay.LogEngine(LogLevel.Info, "Restarting audio sources...");
 
             // Restart audio
             // Note: I'm fine with FindObjectsOfType here since it's a one time thing per reload
@@ -410,13 +393,13 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(Reload)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(Reload)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
         }
 
         Watch.Stop();
 
-        Logging.LogInfo($"Done with reload! Reload took {Watch.ElapsedMilliseconds} milliseconds.");
+        AudioDebugDisplay.LogEngine(LogLevel.Info, $"Reloaded engine in {Watch.ElapsedMilliseconds} milliseconds!");
     }
 
     private static DateTime LastGarbageCollection = DateTime.UtcNow;
@@ -457,50 +440,48 @@ internal static class AudioEngine
 
                 if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update) && pack.Script != null)
                 {
-                    _executeUpdate.Begin();
-                    pack.Script.ExecuteUpdate();
-                    _executeUpdate.End();
+                    using (Profiling.ExecuteUpdate.Auto())
+                        pack.Script.ExecuteUpdate();
                 }
             }
 
             DetectNewSources();
 
-            _playOnAwakeHandling.Begin();
-            var playOnAwakeSources = ForeachCache<KeyValuePair<AudioSource, bool>>.CacheFrom(TrackedPlayOnAwakeSourceStates);
-            for (int i = 0; i < playOnAwakeSources.Length; i++)
+            using (Profiling.PlayOnAwakeHandling.Auto())
             {
-                var source = playOnAwakeSources[i].Key;
-
-                if (source == null)
-                    continue;
-
-                var wasPlaying = playOnAwakeSources[i].Value;
-
-                if (wasPlaying && !source.isPlaying)
+                var playOnAwakeSources = ForeachCache<KeyValuePair<AudioSource, bool>>.CacheFrom(TrackedPlayOnAwakeSourceStates);
+                for (int i = 0; i < playOnAwakeSources.Length; i++)
                 {
-                    TrackedPlayOnAwakeSourceStates[source] = false;
-                    AudioStopped(source, false);
-                }
-                else if (!wasPlaying && source.isPlaying)
-                {
-                    TrackedPlayOnAwakeSourceStates[source] = true;
-                    AudioPlayed(source);
+                    var source = playOnAwakeSources[i].Key;
+
+                    if (source == null)
+                        continue;
+
+                    var wasPlaying = playOnAwakeSources[i].Value;
+
+                    if (wasPlaying && !source.isPlaying)
+                    {
+                        TrackedPlayOnAwakeSourceStates[source] = false;
+                        AudioStopped(source, false);
+                    }
+                    else if (!wasPlaying && source.isPlaying)
+                    {
+                        TrackedPlayOnAwakeSourceStates[source] = true;
+                        AudioPlayed(source);
+                    }
                 }
             }
-            _playOnAwakeHandling.End();
 
-            _cleanupSources.Begin();
-            CleanupSources();
-            _cleanupSources.End();
+            using (Profiling.CleanupSources.Auto())
+                CleanupSources();
 
-            _updateTargeting.Begin();
-            UpdateDynamicTargeting();
-            _updateTargeting.End();
+            using (Profiling.UpdateTargeting.Auto())
+                UpdateDynamicTargeting();
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
         }
     }
 
@@ -515,7 +496,7 @@ internal static class AudioEngine
             SourceDetectionRate.Realtime => TimeSpan.Zero,
             SourceDetectionRate.Fast => TimeSpan.FromMilliseconds(100),
             SourceDetectionRate.Medium => TimeSpan.FromMilliseconds(500),
-            SourceDetectionRate.Slow or _ => TimeSpan.FromMilliseconds(2500),
+            _ => TimeSpan.FromMilliseconds(2500),
         };
 
         if (DateTime.Now - LastSourceFetch < detectionSpeed)
@@ -523,13 +504,13 @@ internal static class AudioEngine
 
         LastSourceFetch = DateTime.Now;
 
-        _detectNewSources.Begin();
-        var activeSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        using (Profiling.DetectNewSources.Auto())
+        {
+            var activeSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-        for (int i = 0; i < activeSources.Length; i++)
-            _ = GetOrCreateModAudioSource(activeSources[i]);
-
-        _detectNewSources.End();
+            for (int i = 0; i < activeSources.Length; i++)
+                _ = GetOrCreateModAudioSource(activeSources[i]);
+        }
     }
 
     private static void UpdateDynamicTargeting()
@@ -775,14 +756,14 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(OneShotClipPlayed)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
-            Logging.LogError($"AudioSource that caused the crash:");
-            Logging.LogError($"  name = {source?.name ?? "(null)"}");
-            Logging.LogError($"  clip = {source?.clip?.name ?? "(null)"}");
-            Logging.LogError($"AudioClip that caused the crash:");
-            Logging.LogError($"  name = {clip?.name ?? "(null)"}");
-            Logging.LogError($"Parameter {nameof(volumeScale)} was: {volumeScale}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(OneShotClipPlayed)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"AudioSource that caused the crash:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  name = {source?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  clip = {source?.clip?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"AudioClip that caused the crash:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  name = {clip?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Parameter {nameof(volumeScale)} was: {volumeScale}");
             return true;
         }
     }
@@ -798,9 +779,8 @@ internal static class AudioEngine
 
             var wasPlaying = state.Audio.isPlaying;
 
-            _playRouting.Begin();
-            Route(state, false);
-            _playRouting.End();
+            using (Profiling.Routing.Auto())
+                Route(state, false);
 
             state.LogDebugDisplay();
 
@@ -817,12 +797,11 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            _playRouting.End();
-            Logging.LogError($"ModAudio crashed in {nameof(AudioPlayed)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
-            Logging.LogError($"AudioSource that caused the crash:");
-            Logging.LogError($"  name = {source?.name ?? "(null)"}");
-            Logging.LogError($"  clip = {source?.clip?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(AudioPlayed)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"AudioSource that caused the crash:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  name = {source?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  clip = {source?.clip?.name ?? "(null)"}");
             return true;
         }
     }
@@ -888,12 +867,12 @@ internal static class AudioEngine
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(AudioStopped)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
-            Logging.LogError($"AudioSource that caused the crash:");
-            Logging.LogError($"  name = {source?.name ?? "(null)"}");
-            Logging.LogError($"  clip = {source?.clip?.name ?? "(null)"}");
-            Logging.LogError($"Parameter {nameof(stopOneShots)} was: {stopOneShots}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(AudioStopped)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"AudioSource that caused the crash:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  name = {source?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"  clip = {source?.clip?.name ?? "(null)"}");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Parameter {nameof(stopOneShots)} was: {stopOneShots}");
             return true;
         }
     }
@@ -902,13 +881,17 @@ internal static class AudioEngine
     {
         if (!CachedRoutingTargetGroupData.TryGetValue(route, out var routeData))
         {
-            _executeTargetGroups.Begin();
             routeData = new TargetGroupData()
             {
                 Source = source
             };
-            pack.Script?.ExecuteTargetGroup(route, routeData);
-            _executeTargetGroups.End();
+
+            if (pack.Script != null)
+            {
+                using (Profiling.ExecuteTargetGroups.Auto())
+                    pack.Script.ExecuteTargetGroup(route, routeData);
+            }
+            
             CachedRoutingTargetGroupData[route] = routeData;
         }
 
@@ -984,7 +967,7 @@ internal static class AudioEngine
         if (source.HasFlag(AudioFlags.DisableRouting))
             return false; // Do not apply changes
 
-        _routing.Begin();
+        using var routingScope = Profiling.Routing.Auto();
 
         CachedRoutingTargetGroupData.Clear();
 
@@ -1005,18 +988,18 @@ internal static class AudioEngine
 
             var stateBeforeRouting = source.AppliedState;
 
-            _routingReplacements.Begin();
-            var replacementApplied = ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null);
-            _routingReplacements.End();
+            bool replacementApplied;
+
+            using (Profiling.RoutingReplacements.Auto())
+                replacementApplied = ExecuteRouteStep(source, preferredStep.HasValue ? (preferredStep.Value.AudioPack, preferredStep.Value.Route) : null);
 
             if (source.HasFlag(AudioFlags.HasEncounteredErrors))
                 break; // Stop further routing or overlays
 
             if (!skipOverlays)
             {
-                _routingOverlays.Begin();
-                PlayOverlays(source, stateBeforeRouting, source.LatestRoute?.Route);
-                _routingOverlays.End();
+                using (Profiling.RoutingOverlays.Auto())
+                    PlayOverlays(source, stateBeforeRouting, source.LatestRoute?.Route);
             }
 
             if (!replacementApplied)
@@ -1039,7 +1022,6 @@ internal static class AudioEngine
 
         CachedRoutingTargetGroupData.Clear();
 
-        _routing.End();
         return wasRouted;
     }
 
@@ -1067,17 +1049,13 @@ internal static class AudioEngine
 
         AudioClip? destinationClip;
         
-        if (randomSelection.Name.StartsWith("<atlyss>")) // For backwards compatibility
+        if (IsVanillaClip(randomSelection.Name, out var vanillaClipName)) // For backwards compatibility
         {
-            destinationClip = LoadVanillaClip(randomSelection.Name["<atlyss>".Length..]);
-        }
-        else if (randomSelection.Name.StartsWith("<game>"))
-        {
-            destinationClip = LoadVanillaClip(randomSelection.Name["<game>".Length..]);
+            destinationClip = LoadVanillaClip(vanillaClipName);
         }
         else
         {
-            pack.LoadClip(randomSelection.Name, out destinationClip);
+            destinationClip = pack.LoadClip(randomSelection.Name);
         }
 
         if (destinationClip != null)
@@ -1116,7 +1094,7 @@ internal static class AudioEngine
         }
         else
         {
-            AudioDebugDisplay.LogAudio(LogLevel.Warning, Texts.AudioClipNotFound(randomSelection.Name));
+            AudioDebugDisplay.LogPack(LogLevel.Warning, pack, $"Couldn't get clip {randomSelection.Name} to play for overlay!");
             pack.SetFlag(PackFlags.HasEncounteredErrors);
             source.SetFlag(AudioFlags.HasEncounteredErrors);
         }
@@ -1129,33 +1107,34 @@ internal static class AudioEngine
 
         List<(AudioPack Pack, Route Route)> overlays = [];
 
-        _sourceMatching.Begin();
-        for (int i = 0; i < AudioPacks.Count; i++)
+        using (Profiling.SourceMatching.Auto())
         {
-            var pack = AudioPacks[i];
-
-            if (!pack.HasFlag(PackFlags.Enabled))
-                continue;
-
-            var routes = pack.Config.Routes;
-
-            for (int k = 0; k < routes.Count; k++)
+            for (int i = 0; i < AudioPacks.Count; i++)
             {
-                var route = routes[k];
+                var pack = AudioPacks[i];
 
-                if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
+                if (!pack.HasFlag(PackFlags.Enabled))
                     continue;
+
+                var routes = pack.Config.Routes;
+
+                for (int k = 0; k < routes.Count; k++)
+                {
+                    var route = routes[k];
+
+                    if (route.OverlaysIgnoreRestarts && !(source.HasFlag(AudioFlags.WasStoppedOrDisabled) || !source.Audio.isPlaying))
+                        continue;
                 
-                if (!(route.OverlayClips.Count > 0 && MatchesSource(source, stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || route.ReplacementClips.Count == 0 || replacementRoute == route)))
-                    continue;
+                    if (!(route.OverlayClips.Count > 0 && MatchesSource(source, stateBeforeRouting, route) && (!route.LinkOverlayAndReplacement || route.ReplacementClips.Count == 0 || replacementRoute == route)))
+                        continue;
 
-                var routeApi = GetCachedTargetGroup(source, pack, route);
+                    var routeApi = GetCachedTargetGroup(source, pack, route);
 
-                if (!routeApi.SkipRoute)
-                    overlays.Add((pack, route));
+                    if (!routeApi.SkipRoute)
+                        overlays.Add((pack, route));
+                }
             }
         }
-        _sourceMatching.End();
 
         for (int i = 0; i < overlays.Count; i++)
         {
@@ -1261,36 +1240,36 @@ internal static class AudioEngine
 
         // Get a replacement from routes
         CachedReplacementSelectionList.Clear();
-        _sourceMatching.Begin();
 
-        if (preferredPackRoute != null)
-            AddReplacementIfEligible(source, preferredPackRoute.Value.Pack, preferredPackRoute.Value.Route, CachedReplacementSelectionList);
-
-        // Check replacements if there is no preferred route - or if it was skipped for some reason
-        if (CachedReplacementSelectionList.Count == 0)
+        using (Profiling.SourceMatching.Auto())
         {
-            for (int i = 0; i < AudioPacks.Count; i++)
+            if (preferredPackRoute != null)
+                AddReplacementIfEligible(source, preferredPackRoute.Value.Pack, preferredPackRoute.Value.Route, CachedReplacementSelectionList);
+
+            // Check replacements if there is no preferred route - or if it was skipped for some reason
+            if (CachedReplacementSelectionList.Count == 0)
             {
-                var pack = AudioPacks[i];
-
-                if (!pack.HasFlag(PackFlags.Enabled))
-                    continue;
-
-                var routes = pack.Config.Routes;
-
-                for (int k = 0; k < routes.Count; k++)
+                for (int i = 0; i < AudioPacks.Count; i++)
                 {
-                    var route = routes[k];
+                    var pack = AudioPacks[i];
 
-                    if (preferredPackRoute != null && route == preferredPackRoute.Value.Route)
-                        continue; // Checked earlier
+                    if (!pack.HasFlag(PackFlags.Enabled))
+                        continue;
 
-                    AddReplacementIfEligible(source, pack, route, CachedReplacementSelectionList);
+                    var routes = pack.Config.Routes;
+
+                    for (int k = 0; k < routes.Count; k++)
+                    {
+                        var route = routes[k];
+
+                        if (preferredPackRoute != null && route == preferredPackRoute.Value.Route)
+                            continue; // Checked earlier
+
+                        AddReplacementIfEligible(source, pack, route, CachedReplacementSelectionList);
+                    }
                 }
             }
         }
-        
-        _sourceMatching.End();
         
         if (CachedReplacementSelectionList.Count == 0)
             return false;
@@ -1299,7 +1278,7 @@ internal static class AudioEngine
         {
             // This is a sanity check, normally this should be prevented earlier in the call stack
             // TODO: Is this really needed? It's already checked higher up the call stack
-            Logging.LogWarning("Tried to route an audio source that has reached max chained routes! Aborting routing operation. Please notify the mod developer about this!");
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, "Tried to route an audio source that has reached max chained routes! Aborting routing operation. Please notify the mod developer about this!");
             CachedReplacementSelectionList.Clear();
             return false;
         }
@@ -1348,11 +1327,11 @@ internal static class AudioEngine
                 groupReplacements.Add(replacement);
         }
 
-        AudioClip? destinationClip = null;
+        AudioClip? destinationClip;
 
         if (groupReplacements.Count == 0)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.NoAudioClipsInGroup(routeApi.TargetGroup));
+            AudioDebugDisplay.LogPack(LogLevel.Error, selectedPack, $"Couldn't get any replacement clips to use for group {routeApi.TargetGroup}!");
             selectedPack.SetFlag(PackFlags.HasEncounteredErrors);
             source.SetFlag(AudioFlags.HasEncounteredErrors);
             destinationClip = ErrorClip;
@@ -1373,13 +1352,13 @@ internal static class AudioEngine
             {
                 destinationClip = DisableClip;
             }
-            else if (randomSelection.Name.StartsWith("<atlyss>"))
+            else if (IsVanillaClip(randomSelection.Name, out var vanillaClipName))
             {
-                destinationClip = LoadVanillaClip(randomSelection.Name["<atlyss>".Length..]);
+                destinationClip = LoadVanillaClip(vanillaClipName);
             }
             else
             {
-                selectedPack.LoadClip(randomSelection.Name, out destinationClip);
+                destinationClip = selectedPack.LoadClip(randomSelection.Name);
             }
 
             if (destinationClip != null)
@@ -1402,14 +1381,14 @@ internal static class AudioEngine
             }
             else
             {
-                AudioDebugDisplay.LogPack(LogLevel.Error, Texts.AudioClipNotFound(randomSelection.Name));
+                AudioDebugDisplay.LogPack(LogLevel.Error, selectedPack, $"Couldn't get clip {randomSelection.Name} to play for replacement!");
                 selectedPack.SetFlag(PackFlags.HasEncounteredErrors);
                 source.SetFlag(AudioFlags.HasEncounteredErrors);
                 destinationClip = ErrorClip;
             }
         }
 
-        source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip ?? ErrorClip);
+        source.PushRoute(selectedPack, selectedRoute, routeApi.TargetGroup, destinationClip);
 
         return true;
     }

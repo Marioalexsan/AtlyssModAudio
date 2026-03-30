@@ -53,7 +53,9 @@ public static class AudioSourceExtensions
             clipDisplay += " > " + state.GetRoute(i).SelectedClip?.name ?? "(null)";
         }
 
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         var volumeDisplay = state.InitialState.Volume != state.AppliedState.Volume ? $"{state.InitialState.Volume:F2} > {state.AppliedState.Volume:F2}" : $"{state.AppliedState.Volume:F2}";
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         var pitchDisplay = state.InitialState.Pitch != state.AppliedState.Pitch ? $"{state.InitialState.Pitch:F2} > {state.AppliedState.Pitch:F2}" : $"{state.AppliedState.Pitch:F2}";
 
         var messageDisplay = $"[{clipDisplay}] ({state.Audio.name}) V:{volumeDisplay} P:{pitchDisplay} G:{state.Audio.outputAudioMixerGroup?.name ?? "(null)"}";
@@ -108,6 +110,6 @@ public static class AudioSourceExtensions
         if (state.HasFlag(AudioFlags.IsOverlay))
             tags += ",Overlay";
 
-        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags, extraParam1: distance);
+        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags, distance: distance);
     }
 }

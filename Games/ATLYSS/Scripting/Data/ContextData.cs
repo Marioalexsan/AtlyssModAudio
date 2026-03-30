@@ -1,9 +1,8 @@
 ﻿using Lua;
-using Marioalexsan.ModAudio.HarmonyPatches;
-using Marioalexsan.ModAudio.Scripting.Proxies;
+using Marioalexsan.ModAudio.Atlyss.Scripting.Proxies;
 using UnityEngine;
 
-namespace Marioalexsan.ModAudio.Scripting.Data;
+namespace Marioalexsan.ModAudio.Atlyss.Scripting.Data;
 
 [LuaObject]
 public partial class ContextData

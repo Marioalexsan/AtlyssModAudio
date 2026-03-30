@@ -1,10 +1,6 @@
 ﻿using Lua;
-using System;
-using System.Collections.Generic;
-using System.Text;
-using static UnityEngine.RemoteConfigSettingsHelper;
 
-namespace Marioalexsan.ModAudio.Scripting.Proxies;
+namespace Marioalexsan.ModAudio.Atlyss.Scripting.Proxies;
 
 [LuaObject]
 public partial class ScriptableCreepProxy

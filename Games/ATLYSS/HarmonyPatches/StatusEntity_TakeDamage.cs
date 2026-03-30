@@ -1,9 +1,5 @@
 ﻿using HarmonyLib;
-using Marioalexsan.ModAudio.Scripting;
-using Marioalexsan.ModAudio.Scripting.Data;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using Marioalexsan.ModAudio.Atlyss.Scripting.Data;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio.Atlyss.HarmonyPatches;

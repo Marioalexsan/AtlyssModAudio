@@ -1,4 +1,4 @@
-﻿namespace Marioalexsan.ModAudio;
+﻿namespace Marioalexsan.ModAudio.Atlyss;
 
 public static partial class VanillaClips
 {

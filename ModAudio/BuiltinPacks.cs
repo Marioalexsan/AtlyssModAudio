@@ -1,4 +1,6 @@
-﻿namespace Marioalexsan.ModAudio;
+﻿using BepInEx.Logging;
+
+namespace Marioalexsan.ModAudio;
 
 static class BuiltinPacks
 {
@@ -55,8 +57,8 @@ static class BuiltinPacks
         }
         catch (Exception e)
         {
-            Logging.LogWarning("Couldn't load a builtin clip!");
-            Logging.LogWarning(e);
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, "Couldn't load the Knuckles easter egg! Please report this to the mod developer.");
+            AudioDebugDisplay.LogEngine(LogLevel.Warning, $"Exception data: {e}");
         }
     }
 }

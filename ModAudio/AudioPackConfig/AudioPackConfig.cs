@@ -1,6 +1,6 @@
 ﻿using BepInEx.Logging;
 
-namespace Marioalexsan.ModAudio;
+namespace Marioalexsan.ModAudio.AudioPackConfig;
 
 public class AudioPackConfig
 {
@@ -51,16 +51,16 @@ public class AudioPackConfig
         
         foreach (var path in routePaths)
         {
-            var aliasedPath = AudioPackLoader.AliasRootPath(path);
+            var aliasedPath = Utils.AliasRootPath(path);
             try
             {
                 using var stream = File.OpenRead(path);
-                RouteConfig.ReadTextFormat(stream, routeConfig, ((lineNumber, message) => Logging.LogWarning($"File {aliasedPath}, line {lineNumber}: {message}")));
+                RouteConfig.ReadTextFormat(stream, routeConfig, ((lineNumber, message) => AudioDebugDisplay.LogPack(LogLevel.Warning, null, $"File {aliasedPath}, line {lineNumber}: {message}")));
             }
             catch (Exception e)
             {
-                AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read route file {aliasedPath}.");
-                AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+                AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Failed to read route file {aliasedPath}.");
+                AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Exception data: {e}");
             }
         }
 
@@ -78,7 +78,7 @@ public class AudioPackConfig
             CustomClips = routeConfig.Routes
                 .SelectMany(x => x.ReplacementClips.Concat(x.OverlayClips))
                 .Select(x => x.Name)
-                .Where(x => !AudioEngine.IsSpecialClip(x) && !x.Trim().StartsWith('<')) // TODO: Move these magic strings to a constant
+                .Where(x => !AudioEngine.IsSpecialClip(x) && !AudioEngine.IsVanillaClip(x, out _)) // TODO: Move these magic strings to a constant
                 .Distinct()
                 .Select(x => new AudioClipData()
                 {
@@ -100,7 +100,7 @@ public class AudioPackConfig
         foreach (var clipVolume in routeConfig.ClipVolumes)
         {
             if (config.CustomClips.All(x => x.Name != clipVolume.Key))
-                Logging.LogWarning($"Couldn't find clip {clipVolume.Key} to set volume for.");
+                AudioDebugDisplay.LogPack(LogLevel.Warning, null, $"Pack config {config.Id}: couldn't find clip {clipVolume.Key} to set volume for.");
         }
 
         return config;

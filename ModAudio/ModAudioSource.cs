@@ -2,6 +2,8 @@
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
+namespace Marioalexsan.ModAudio;
+
 public struct RouteStep
 {
     public AudioPack AudioPack;

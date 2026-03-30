@@ -1,7 +1,6 @@
 ﻿using Lua;
-using Marioalexsan.ModAudio.HarmonyPatches;
 
-namespace Marioalexsan.ModAudio.Scripting.Data;
+namespace Marioalexsan.ModAudio.Scripting;
 
 [LuaObject]
 public partial class EngineData

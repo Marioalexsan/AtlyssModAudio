@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using BepInEx;
+﻿using BepInEx;
 using BepInEx.Logging;
 using Marioalexsan.ModAudio.Scripting;
 using UnityEngine;
@@ -11,38 +10,8 @@ public static class AudioPackLoader
     private static readonly char[] BepInExCharsToSanitize = ['=', '\n', '\t', '\\', '"', '\'', '[', ']'];
     private static readonly char[] BannedChars = [.. BepInExCharsToSanitize];
 
-    public const float OneMB = 1024f * 1024f;
-
     public const string RoutesScriptName = "__routes.lua";
     public const string RoutesConfigName = "__routes.txt";
-
-    public const int FileSizeLimitForLoading = 1024 * 1024;
-
-    public static string AliasRootPath(string path)
-    {
-        return Path.GetFullPath(path)
-            .Replace('\\', '/')
-            .Replace($"{Path.GetFullPath(Paths.PluginPath).Replace('\\', '/').TrimEnd('/')}/", "plugin://")
-            .Replace($"{Path.GetFullPath(Paths.ConfigPath).Replace('\\', '/').TrimEnd('/')}/", "config://");
-    }
-
-    public static string ResolvePathAlias(string path)
-    {
-        path = path.Replace('\\', '/');
-        
-        if (path.StartsWith("plugin://"))
-            return Path.Combine(Paths.PluginPath, path.Substring("plugin://".Length));
-        
-        if (path.StartsWith("config://"))
-            return Path.Combine(Paths.ConfigPath, path.Substring("config://".Length));
-
-        return path;
-    }
-
-    private static bool IsSanitizedId(string id)
-    {
-        return SanitizeId(id) == id;
-    }
 
     private static string SanitizeId(string id)
     {
@@ -57,16 +26,11 @@ public static class AudioPackLoader
         return sanitizedId;
     }
 
-    private static string ConvertPathToId(string path)
-    {
-        return SanitizeId(AliasRootPath(path).Replace("\\", "/"));
-    }
-
     private static string ConvertPathToDisplayName(string path)
     {
         const string RootSep = "://";
 
-        var cleanPath = AliasRootPath(path);
+        var cleanPath = Utils.AliasRootPath(path);
 
         var index = cleanPath.IndexOf(RootSep, StringComparison.Ordinal);
         var removedRoot = index == -1 ? cleanPath : cleanPath[(index + RootSep.Length)..];
@@ -84,6 +48,8 @@ public static class AudioPackLoader
             ..Directory.GetDirectories(Paths.ConfigPath),
             ..Directory.GetDirectories(Paths.PluginPath),
         ];
+        
+        BuiltinPacks.LoadBuiltinAudioPacks(audioPacks);
 
         foreach (var rootPath in loadPaths)
         {
@@ -93,7 +59,7 @@ public static class AudioPackLoader
         foreach (var audioPack in audioPacks)
         {
             FinalizePack(audioPack);
-            AudioDebugDisplay.LogPack(LogLevel.Info, Texts.PackLoaded(audioPack));
+            AudioDebugDisplay.LogPack(LogLevel.Info, audioPack, $"Loaded pack with {audioPack.Config.Routes.Count} routes and {audioPack.Config.CustomClips.Count} clips.");
         }
 
         return audioPacks;
@@ -103,62 +69,51 @@ public static class AudioPackLoader
     {
         pack.Script?.Start();
 
-        foreach (var route in pack.Config.Routes)
+        if (!pack.HasFlag(PackFlags.BuiltinPack))
         {
-            // Validate / normalize / remap stuff
-            // ...unless it's a builtin pack, those get to skip validation
-            if (!pack.HasFlag(PackFlags.BuiltinPack))
+            bool hasInvalidWeights = false;
+            
+            foreach (var route in pack.Config.Routes)
             {
-                var clampedWeight = Mathf.Clamp(route.ReplacementWeight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-                // ReSharper disable once CompareOfFloatsByEqualityOperator
-                if (clampedWeight != route.ReplacementWeight)
+                static float ClampWeight(float weight, ref bool wasClamped)
                 {
-                    AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
-                    pack.SetFlag(PackFlags.HasEncounteredErrors);
-                }
+                    var clampedWeight = Mathf.Clamp(weight, ModAudio.MinWeight, ModAudio.MaxWeight);
 
-                route.ReplacementWeight = clampedWeight;
+                    // ReSharper disable once CompareOfFloatsByEqualityOperator
+                    if (clampedWeight != weight)
+                        wasClamped = true;
+                    
+                    return clampedWeight;
+                }
+                
+                route.ReplacementWeight = ClampWeight(route.ReplacementWeight, ref hasInvalidWeights);
 
                 foreach (var selection in route.ReplacementClips)
-                {
-                    clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-                    // ReSharper disable once CompareOfFloatsByEqualityOperator
-                    if (clampedWeight != selection.Weight)
-                    {
-                        AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
-                        pack.SetFlag(PackFlags.HasEncounteredErrors);
-                    }
-
-                    selection.Weight = clampedWeight;
-                }
+                    selection.Weight = ClampWeight(selection.Weight, ref hasInvalidWeights);
 
                 foreach (var selection in route.OverlayClips)
-                {
-                    clampedWeight = Mathf.Clamp(selection.Weight, ModAudio.MinWeight, ModAudio.MaxWeight);
-
-                    // ReSharper disable once CompareOfFloatsByEqualityOperator
-                    if (clampedWeight != selection.Weight)
-                    {
-                        AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.WeightClamped(clampedWeight, pack));
-                        pack.SetFlag(PackFlags.HasEncounteredErrors);
-                    }
-
-                    selection.Weight = clampedWeight;
-                }
+                    selection.Weight = ClampWeight(selection.Weight, ref hasInvalidWeights);
             }
 
+            if (hasInvalidWeights)
+            {
+                AudioDebugDisplay.LogPack(LogLevel.Warning, pack, $"This pack has invalid clip weights! They were clamped to the [{ModAudio.MinWeight}, {ModAudio.MaxWeight}] range!");
+                pack.SetFlag(PackFlags.HasEncounteredErrors);
+            }
+        }
+        
+        foreach (var route in pack.Config.Routes)
+        {
             if (!string.IsNullOrEmpty(route.TargetGroupScript) && (pack.Script == null || !pack.Script.HasExportedMethod(route.TargetGroupScript)))
             {
-                AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingTargetGroupScript(route.TargetGroupScript, pack));
+                AudioDebugDisplay.LogPack(LogLevel.Warning, pack, $"Couldn't find target group method {route.TargetGroupScript} in the Lua script!");
                 pack.SetFlag(PackFlags.HasEncounteredErrors);
             }
         }
 
         if (!string.IsNullOrEmpty(pack.Config.PackScripts.Update) && (pack.Script == null || !pack.Script.HasExportedMethod(pack.Config.PackScripts.Update)))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Warning, Texts.MissingUpdateScript(pack.Config.PackScripts.Update, pack));
+            AudioDebugDisplay.LogPack(LogLevel.Warning, pack, $"Couldn't find update method {pack.Config.PackScripts.Update} in the Lua script!");
             pack.SetFlag(PackFlags.HasEncounteredErrors);
         }
     }
@@ -198,31 +153,31 @@ public static class AudioPackLoader
         if (routesToLoad.Count == 0)
             return; // Need at least one
 
-        var pack = LoadAudioPack(existingPacks, folderPath, routesToLoad, AudioPackConfig.ReadRouteConfig);
+        var pack = LoadAudioPack(existingPacks, folderPath, routesToLoad, AudioPackConfig.AudioPackConfig.ReadRouteConfig);
                 
         if (pack != null)
             existingPacks.Add(pack);
     }
 
-    private static AudioPack? LoadAudioPack(List<AudioPack> existingPacks, string folderPath, List<string> routePaths, Func<List<string>, AudioPackConfig> configReader)
+    private static AudioPack? LoadAudioPack(List<AudioPack> existingPacks, string folderPath, List<string> routePaths, Func<List<string>, AudioPackConfig.AudioPackConfig> configReader)
     {
         if (routePaths.Count == 0)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack config for {AliasRootPath(folderPath)}. No route files were specified.");
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Couldn't find any pack configuration in {Utils.AliasRootPath(folderPath)}!");
             return null;
         }
         
-        AudioDebugDisplay.LogPack(LogLevel.Info, Texts.LoadingPack(folderPath, routePaths.Count));
+        AudioDebugDisplay.LogPack(LogLevel.Info, null, $"Loading pack from {Utils.AliasRootPath(folderPath)}.");
 
-        AudioPackConfig config;
+        AudioPackConfig.AudioPackConfig config;
         try
         {
             config = configReader(routePaths);
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack configurations from {AliasRootPath(folderPath)}.");
-            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Failed to read audio pack configuration from {Utils.AliasRootPath(folderPath)}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Exception data: {e}");
             return null;
         }
 
@@ -238,11 +193,11 @@ public static class AudioPackLoader
         if (string.IsNullOrEmpty(pack.Config.Id))
         {
             // Assign an ID based on location
-            pack.Config.Id = ConvertPathToId(virtualRoutesConfig);
+            pack.Config.Id = SanitizeId(Utils.AliasRootPath(virtualRoutesConfig));
         }
-        else if (!IsSanitizedId(pack.Config.Id))
+        else if (SanitizeId(pack.Config.Id) != pack.Config.Id)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.InvalidPackId(pack.PackPath, pack.Config.Id));
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Couldn't load pack from {pack.PackPath}, the ID {pack.Config.Id} has invalid characters!");
             return null;
         }
 
@@ -254,7 +209,7 @@ public static class AudioPackLoader
 
         if (existingPacks.Any(x => x.Config.Id == pack.Config.Id))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.DuplicatePackId(pack.PackPath, pack.Config.Id));
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Couldn't load pack from {pack.PackPath}, there is already an audio pack loaded with the ID {pack.Config.Id}!");
             return null;
         }
 
@@ -270,15 +225,15 @@ public static class AudioPackLoader
         if (clipData == null)
             return null;
         
-        string clipPath = ResolvePathAlias(clipData.Path);
+        string clipPath = Utils.ResolvePathAlias(clipData.Path);
 
         if (!Path.IsPathFullyQualified(clipPath))
             clipPath = Path.GetFullPath(Path.Combine(pack.PackPath, clipData.Path));
 
-        // Disallow loading stuff outside of mod folders
-        if (!clipPath.StartsWith(Paths.PluginPath) && !clipPath.StartsWith(Paths.ConfigPath))
+        // Disallow loading stuff outside of mod folders *unless it's a builtin*
+        if (!clipPath.StartsWith(Paths.PluginPath) && !clipPath.StartsWith(Paths.ConfigPath) && !pack.HasFlag(PackFlags.BuiltinPack))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.InvalidPackPath(clipData.Path, clipData.Name));
+            AudioDebugDisplay.LogPack(LogLevel.Error, pack, $"Couldn't load clip {clipData.Name} from {clipData.Path}. Clips can only be loaded if they are in the BepInEx/plugins or BepInEx/config folders!");
             pack.SetFlag(PackFlags.HasEncounteredErrors);
             return null;
         }
@@ -287,8 +242,8 @@ public static class AudioPackLoader
 
         if (!gotExtension)
         {
-            // If it doesn't end explicitly with an extension, check if a related audio file exists
-            foreach (var ext in AudioClipLoader.SupportedStreamExtensions)
+            // Check if a related audio file exists
+            foreach (var ext in AudioClipLoader.SupportedExtensions)
             {
                 if (File.Exists(clipPath + ext))
                 {
@@ -299,16 +254,9 @@ public static class AudioPackLoader
             }
         }
 
-        if (!gotExtension)
+        if (!gotExtension || !File.Exists(clipPath))
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.UnsupportedAudioFile(clipData.Path, clipData.Name));
-            pack.SetFlag(PackFlags.HasEncounteredErrors);
-            return null;
-        }
-
-        if (!File.Exists(clipPath))
-        {
-            AudioDebugDisplay.LogPack(LogLevel.Error, Texts.AudioFileNotFound(clipData.Path, clipData.Name));
+            AudioDebugDisplay.LogPack(LogLevel.Error, pack, $"Couldn't load clip {clipData.Name} from {clipData.Path}. Either it was not found, or it is not a supported audio format.");
             pack.SetFlag(PackFlags.HasEncounteredErrors);
             return null;
         }
@@ -330,13 +278,13 @@ public static class AudioPackLoader
             pack.Script = new ModAudioScript(pack, rootScript);
             pack.ScriptFiles.Add(scriptPath);
 
-            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loaded Lua script from {AliasRootPath(scriptPath)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Debug, pack, $"Loaded Lua script from {Utils.AliasRootPath(scriptPath)}.");
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Failed to read audio pack scripts for {AliasRootPath(folderPath)}.");
-            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
-            pack.SetFlag(PackFlags.ForceDisableScripts | PackFlags.HasEncounteredErrors);
+            AudioDebugDisplay.LogPack(LogLevel.Error, pack, $"Failed to read audio pack scripts for {Utils.AliasRootPath(folderPath)}.");
+            AudioDebugDisplay.LogPack(LogLevel.Error, pack, $"Exception data: {e}");
+            pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
     }
 }

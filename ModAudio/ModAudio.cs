@@ -1,7 +1,5 @@
-﻿using System.Reflection;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using BepInEx;
-using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -9,6 +7,7 @@ using Marioalexsan.ModAudio.HarmonyPatches;
 using Nessie.ATLYSS.EasySettings;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace Marioalexsan.ModAudio;
 
@@ -24,15 +23,15 @@ public class ModAudio : MonoBehaviour
     internal static ConfigFile Config { get; set; } = null!;
     internal static readonly Harmony Harmony = new Harmony(ModInfo.GUID);
 
-    private static bool ScheduleHardReload = true;
+    internal static bool ShouldHardReloadNextFrame = true;
 
-    public static bool Knuckles { get; internal set; } = false;
+    public static bool Knuckles { get; internal set; }
 
     public static string ConfigFolder => Path.Combine(Paths.ConfigPath, $"{ModInfo.GUID}_UserAudioPack");
     public static string PluginFolder { get; internal set; } = null!;
     public static string AssetsFolder => Path.Combine(PluginFolder, "Assets");
     public static string TestPacksFolder => Path.Combine(PluginFolder, "TestPacks");
-    public static bool CurrentlyEnabled { get; private set; } = false;
+    public static bool CurrentlyEnabled { get; private set; }
 
     public static GameObject? EasySettingsAudioPacksRoot { get; set; }
 
@@ -54,9 +53,7 @@ public class ModAudio : MonoBehaviour
         Current = this;
         CurrentlyEnabled = ModAudioEnabled.Value;
 
-        // Patch the classes directly
-        // The reason we don't use PatchAll on the assembly is that this would make Harmony hit Lua-CSharp types
-        // and would crash if scripting is not actually available
+        // TODO: Check if patching the classes directly instead of scanning the assembly is still needed
         ModAudio.Harmony.PatchAll(typeof(AudioSource_PlayHelper));
         ModAudio.Harmony.PatchAll(typeof(AudioSource_Play));
         ModAudio.Harmony.PatchAll(typeof(AudioSource_PlayOneShotHelper));
@@ -65,7 +62,7 @@ public class ModAudio : MonoBehaviour
         ModAudio.Harmony.PatchAll(typeof(AudioSource_PitchSetter));
         ModAudio.Harmony.PatchAll(typeof(AudioSource_VolumeGetter));
         ModAudio.Harmony.PatchAll(typeof(AudioSource_PitchGetter));
-        
+
         SetupBaseAudioPack();
 
         if (SoftDependencies.HasEasySettings())
@@ -77,66 +74,92 @@ public class ModAudio : MonoBehaviour
             {
                 Settings.OnInitialized.AddListener(() =>
                 {
-                    Settings.ModTab.AddHeader(ModInfo.NAME);
-                    Settings.ModTab.AddToggle("Enable ModAudio?", ModAudioEnabled);
-                    Settings.ModTab.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
-                    Settings.ModTab.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
-                    Settings.ModTab.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
+                    var modAudioTab = Settings.GetOrAddCustomTab(ModInfo.NAME);
+
+                    modAudioTab.AddToggle("Enable ModAudio?", ModAudioEnabled);
+                    modAudioTab.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
+                    modAudioTab.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
+                    modAudioTab.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
+                    modAudioTab.AddToggle("Write Audio logs to Bepinex", WriteAudioLogsToBepinexLog);
+                    modAudioTab.AddToggle("Write Pack logs to Bepinex", WritePackLogsToBepinexLog);
+                    modAudioTab.AddToggle("Write Script logs to Bepinex", WriteScriptLogsToBepinexLog);
+                    modAudioTab.AddToggle("Write Engine logs to Bepinex", WriteEngineLogsToBepinexLog);
                 });
-                Settings.OnApplySettings.AddListener(() =>
-                {
-                    try
-                    {
-                        Config.Save();
-
-                        bool hardReloadRequired = false;
-                        bool softReloadRequired = false;
-
-                        // If ModAudio was just disabled or enabled, we should do a hard reload to cleanup any leftover packs
-                        if (CurrentlyEnabled != ModAudioEnabled.Value)
-                        {
-                            CurrentlyEnabled = ModAudioEnabled.Value;
-                            hardReloadRequired = true;
-                        }
-
-                        foreach (var pack in AudioEngine.AudioPacks)
-                        {
-                            if (pack.HasFlag(PackFlags.NotConfigurable))
-                                continue; // Not configurable - do not touch
-
-                            var packEnabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
-
-                            if (!CurrentlyEnabled)
-                                packEnabled = false;
-
-                            if (packEnabled != pack.HasFlag(PackFlags.Enabled))
-                            {
-                                Logger.LogInfo($"Pack {pack.Config.Id} is now {(packEnabled ? "enabled" : "disabled")}");
-                                softReloadRequired = true;
-                            }
-
-                            pack.AssignFlag(PackFlags.Enabled, packEnabled);
-                        }
-
-                        if (hardReloadRequired)
-                        {
-                            AudioEngine.HardReload();
-                        }
-                        else if (softReloadRequired)
-                        {
-                            AudioEngine.SoftReload();
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Logging.LogError($"ModAudio crashed in OnApplySettings! Please report this error to the mod developer:");
-                        Logging.LogError(e.ToString());
-                    }
-                });
+                Settings.OnApplySettings.AddListener(ApplyConfiguration);
             }
         }
-        
+
         SceneManager.sceneLoaded += OnNewScene;
+    }
+
+    [MethodImpl(SoftDependencies.MethodOpts)]
+    internal static void EasySettings_External_TogglePack(string packId)
+    {
+        var pack = AudioEngine.AudioPacks.FirstOrDefault(x => x.Config.Id == packId);
+
+        if (pack == null)
+            return;
+
+        if (!AudioPackEnabledObjects.TryGetValue(pack.Config.Id, out var obj))
+            return;
+
+        var toggle = obj.Toggle.GetComponentInChildren<Toggle>();
+
+        if (!toggle)
+            return;
+
+        toggle.isOn = !toggle.isOn;
+    }
+
+    internal static void ApplyConfiguration()
+    {
+        try
+        {
+            Config.Save();
+
+            bool hardReloadRequired = false;
+            bool softReloadRequired = false;
+
+            // If ModAudio was just disabled or enabled, we should do a hard reload to cleanup any leftover packs
+            if (CurrentlyEnabled != ModAudioEnabled.Value)
+            {
+                CurrentlyEnabled = ModAudioEnabled.Value;
+                hardReloadRequired = true;
+            }
+
+            foreach (var pack in AudioEngine.AudioPacks)
+            {
+                if (pack.HasFlag(PackFlags.NotConfigurable))
+                    continue; // Not configurable - do not touch
+
+                var packEnabled = !AudioPackEnabled.TryGetValue(pack.Config.Id, out var config) || config.Value;
+
+                if (!CurrentlyEnabled)
+                    packEnabled = false;
+
+                if (packEnabled != pack.HasFlag(PackFlags.Enabled))
+                {
+                    Logger.LogInfo($"Pack {pack.Config.Id} is now {(packEnabled ? "enabled" : "disabled")}");
+                    softReloadRequired = true;
+                }
+
+                pack.AssignFlag(PackFlags.Enabled, packEnabled);
+            }
+
+            if (hardReloadRequired)
+            {
+                AudioEngine.HardReload();
+            }
+            else if (softReloadRequired)
+            {
+                AudioEngine.SoftReload();
+            }
+        }
+        catch (Exception e)
+        {
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in ApplyConfiguration! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
+        }
     }
 
     private void OnNewScene(Scene scene, LoadSceneMode loadMode)
@@ -150,22 +173,7 @@ public class ModAudio : MonoBehaviour
     {
         if (!Directory.Exists(ConfigFolder))
             Directory.CreateDirectory(ConfigFolder);
-
-        if (File.Exists(Path.Combine(ConfigFolder, "clip_names.txt")))
-        {
-            try
-            {
-                File.Move(Path.Combine(ConfigFolder, "clip_names.txt"), Path.Combine(ConfigFolder, "clip_names_obsolete.txt"));
-            }
-            catch (Exception)
-            {
-            }
-        }
     }
-    
-    // For debugging / tuning - not present in EasySettings
-    public static ConfigEntry<int> AudioStreamingLimitBytes { get; internal set; } = null!;
-    public static ConfigEntry<int> AudioCacheTimeInSeconds { get; internal set; } = null!;
 
     public static ConfigEntry<bool> ModAudioEnabled { get; internal set; } = null!;
     public static ConfigEntry<bool> EasterEggsEnabled { get; internal set; } = null!;
@@ -176,29 +184,40 @@ public class ModAudio : MonoBehaviour
     public static Dictionary<string, ConfigEntry<bool>> AudioPackEnabled { get; } = [];
     public static Dictionary<string, (GameObject Toggle, string DisplayName)> AudioPackEnabledObjects { get; } = [];
 
+    // For debugging / tuning - not present in EasySettings
+    public static ConfigEntry<int> AudioStreamingLimitBytes { get; internal set; } = null!;
+    public static ConfigEntry<int> AudioCacheTimeInSeconds { get; internal set; } = null!;
+
+    public static ConfigEntry<bool> WriteAudioLogsToBepinexLog { get; internal set; } = null!;
+    public static ConfigEntry<bool> WritePackLogsToBepinexLog { get; internal set; } = null!;
+    public static ConfigEntry<bool> WriteScriptLogsToBepinexLog { get; internal set; } = null!;
+    public static ConfigEntry<bool> WriteEngineLogsToBepinexLog { get; internal set; } = null!;
+
     internal static void InitializePackConfiguration()
     {
         if (SoftDependencies.HasEasySettings())
         {
             SetupAudioPackRoot();
-            
+
             [MethodImpl(SoftDependencies.MethodOpts)]
             static void SetupAudioPackRoot()
             {
                 if (EasySettingsAudioPacksRoot)
                     return;
-                
-                Settings.ModTab.AddHeader($"{ModInfo.NAME} audio packs");
-                Settings.ModTab.AddButton(Texts.OpenCustomAudioPackTitle, () =>
+
+                var modAudioTab = Settings.GetOrAddCustomTab(ModInfo.NAME);
+
+                modAudioTab.AddHeader($"{ModInfo.NAME} audio packs");
+                modAudioTab.AddButton("Open custom audio pack folder", () =>
                 {
                     SetupBaseAudioPack();
                     Application.OpenURL(new Uri($"{ConfigFolder}").AbsoluteUri);
                 });
-                Settings.ModTab.AddButton(Texts.HardReloadTitle, () => ScheduleHardReload = true);
-                EasySettingsAudioPacksRoot = Settings.ModTab.AddButton(Texts.ReloadScripts, AudioEngine.SoftReloadScripts).Root.gameObject;
+                modAudioTab.AddButton("Hard reload audio packs", () => ShouldHardReloadNextFrame = true);
+                EasySettingsAudioPacksRoot = modAudioTab.AddButton("Reload scripts from disk", AudioEngine.SoftReloadScripts).Root.gameObject;
             }
         }
-        
+
         foreach (var pack in AudioEngine.AudioPacks)
         {
             if (pack.HasFlag(PackFlags.NotConfigurable))
@@ -231,23 +250,25 @@ public class ModAudio : MonoBehaviour
                             break;
                     }
                 }
-                
-                var packEnabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, enabledByDefault, Texts.EnablePackDescription(pack.Config.DisplayName));
+
+                var packEnabled = Config.Bind("EnabledAudioPacks", pack.Config.Id, enabledByDefault, $"Set to true to enable {pack.Config.DisplayName}, false to disable it.");
 
                 if (forceEnableState != null)
                     packEnabled.Value = forceEnableState.Value;
 
                 AudioPackEnabled[pack.Config.Id] = packEnabled;
-                
+
                 if (SoftDependencies.HasEasySettings())
                 {
                     AddAudioPackToggle(pack, packEnabled);
-                    
+
                     [MethodImpl(SoftDependencies.MethodOpts)]
                     static void AddAudioPackToggle(AudioPack pack, ConfigEntry<bool> packEnabled)
                     {
+                        var modAudioTab = Settings.GetOrAddCustomTab(ModInfo.NAME);
+
                         if (!AudioPackEnabledObjects.ContainsKey(pack.Config.Id))
-                            AudioPackEnabledObjects[pack.Config.Id] = (Settings.ModTab.AddToggle(pack.Config.DisplayName, packEnabled).Root.gameObject, pack.Config.DisplayName);
+                            AudioPackEnabledObjects[pack.Config.Id] = (modAudioTab.AddToggle(pack.Config.DisplayName, packEnabled).Root.gameObject, pack.Config.DisplayName);
                     }
                 }
 
@@ -262,13 +283,13 @@ public class ModAudio : MonoBehaviour
         if (SoftDependencies.HasEasySettings())
         {
             SortAudioPackToggles();
-            
+
             [MethodImpl(SoftDependencies.MethodOpts)]
             static void SortAudioPackToggles()
             {
                 if (EasySettingsAudioPacksRoot == null)
                     return;
-                
+
                 int siblingIndex = EasySettingsAudioPacksRoot.transform.GetSiblingIndex() + 1;
 
                 foreach (var config in AudioPackEnabledObjects.OrderBy(x => x.Value.DisplayName))
@@ -290,9 +311,9 @@ public class ModAudio : MonoBehaviour
     {
         try
         {
-            if (ScheduleHardReload)
+            if (ShouldHardReloadNextFrame)
             {
-                ScheduleHardReload = false;
+                ShouldHardReloadNextFrame = false;
                 AudioEngine.HardReload();
             }
 
@@ -300,8 +321,8 @@ public class ModAudio : MonoBehaviour
         }
         catch (Exception e)
         {
-            Logging.LogError($"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
-            Logging.LogError(e.ToString());
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
         }
     }
 }

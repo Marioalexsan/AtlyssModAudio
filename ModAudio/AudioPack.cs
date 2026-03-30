@@ -1,7 +1,6 @@
 ﻿using Marioalexsan.ModAudio.Scripting;
 using System.Runtime.CompilerServices;
 using BepInEx.Logging;
-using Unity.Profiling;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -34,7 +33,7 @@ public class AudioPack : IDisposable
     public List<string> ScriptFiles { get; set; } = [];
     public List<string> ConfigFiles { get; set; } = [];
     
-    public AudioPackConfig Config { get; set; } = new();
+    public AudioPackConfig.AudioPackConfig Config { get; set; } = new();
 
     public PackFlags Flags;
 
@@ -47,7 +46,7 @@ public class AudioPack : IDisposable
     // Statistics
     public int CurrentStreamedClips { get; set; }
     public int CurrentInMemoryClips { get; set; }
-    public int CurrentlyWaitingForLoad => PreloadQueue.Count;
+    public int CurrentQueuedClips => PreloadQueue.Count;
 
     public IModAudioScript? Script { get; set; }
 
@@ -100,7 +99,7 @@ public class AudioPack : IDisposable
         {
             var nextClip = PreloadQueue.Dequeue();
 
-            if (AudioEngine.IsSpecialClip(nextClip))
+            if (AudioEngine.IsSpecialClip(nextClip) || AudioEngine.IsVanillaClip(nextClip, out _))
                 continue; // Skip these
 
             if (!ReadyAudio.ContainsKey(nextClip))
@@ -118,26 +117,67 @@ public class AudioPack : IDisposable
         
         if (clipData == null || resolvedFilePath == null)
         {
-            Logging.LogWarning($"Failed to load clip {clipToLoad}: no such clip data in the pack!");
+            AudioDebugDisplay.LogPack(LogLevel.Warning, this, $"Failed to load clip {clipToLoad}: no such clip data in the pack!");
+            SetFlag(PackFlags.HasEncounteredErrors);
             return;
         }
         
-        AudioDebugDisplay.LogEngine(LogLevel.Debug, $"Loading {clipToLoad} from pack {Config.Id}...");
+        AudioDebugDisplay.LogPack(LogLevel.Debug, this, $"Loading {clipToLoad}...");
         
         PendingClipLoad = (clipToLoad, Task.Run(() =>
         {
             return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
         }));
     }
-    
-    private static readonly ProfilerMarker _loadFinalizer = new ProfilerMarker("ModAudio time spent finalizing loads");
 
-    public void FinalizeLoadIfAny()
+    public AudioClip? LoadClip(string name)
+    {
+        if (ReadyAudio.TryGetValue(name, out var audio))
+        {
+            var clip = audio.Clip;
+            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
+            return clip;
+        }
+
+        // TODO: Remove Linq call and fix shitcode
+        var clipData = Config.CustomClips.FirstOrDefault(x => x.Name == name);
+        var resolvedFilePath = AudioPackLoader.ResolvePath(this, name);
+
+        if (clipData == null || resolvedFilePath == null)
+        {
+            return null;
+        }
+
+        if (PendingClipLoad.HasValue && PendingClipLoad.Value.ClipName != name)
+        {
+            // We have to clear this one out first!
+            FinalizeLoadIfAny();
+        }
+
+        PendingClipLoad = (name, Task.Run(() =>
+        {
+            return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
+        }));
+        
+        // Gotta wait for it right away and check ready clips again
+        FinalizeLoadIfAny();
+
+        if (ReadyAudio.TryGetValue(name, out audio))
+        {
+            var clip = audio.Clip;
+            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
+            return clip;
+        }
+        
+        return null;
+    }
+    
+    private void FinalizeLoadIfAny()
     {
         if (!PendingClipLoad.HasValue)
             return;
      
-        _loadFinalizer.Begin();
+        using var loadFinalizer = Profiling.LoadFinalizer.Auto();
         
         var (clipName, loadTask) = PendingClipLoad.Value;
 
@@ -157,11 +197,11 @@ public class AudioPack : IDisposable
             // Deal with a potential edge case, just in case
             if (ReadyAudio.ContainsKey(clipName))
             {
-                Logging.LogError($"Tried to load a clip {clipName} that was already loaded!");
-                Logging.LogError("This is likely a logic error, please notify the mod developer about this!");
+                AudioDebugDisplay.LogPack(LogLevel.Error, this, $"Tried to load a clip {clipName} that was already loaded!");
+                AudioDebugDisplay.LogPack(LogLevel.Error, this, "This is likely a logic error, please notify the mod developer about this!");
+                SetFlag(PackFlags.HasEncounteredErrors);
                 openStream?.Dispose();
                 PendingClipLoad = null;
-                _loadFinalizer.End();
                 return;
             }
 
@@ -176,12 +216,13 @@ public class AudioPack : IDisposable
                 CurrentInMemoryClips++;
             }
             
-            AudioDebugDisplay.LogEngine(LogLevel.Debug, $"Successfully loaded clip {clipName} in {(openStream != null ? "streamed" : "in-memory")} mode!");
+            AudioDebugDisplay.LogPack(LogLevel.Debug, this, $"Loaded {(openStream != null ? "streamed" : "in-memory")} clip {clipName}!");
         }
         catch (Exception e)
         {
-            Logging.LogError("Failed to load an audio clip! It will be replaced with an empty audio file!");
-            Logging.LogError($"Exception: {e}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, this, $"Failed to load clip {clipName}! It will be replaced with an empty audio file!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, this, $"Exception: {e}!");
+            SetFlag(PackFlags.HasEncounteredErrors);
             openStream?.Dispose();
             openStream = null;
             clip = AudioEngine.ErrorClip;
@@ -194,53 +235,8 @@ public class AudioPack : IDisposable
             LastUsed = DateTime.UtcNow
         };
         PendingClipLoad = null;
-        _loadFinalizer.End();
     }
-
-    public bool LoadClip(string name, out AudioClip? clip)
-    {
-        if (ReadyAudio.TryGetValue(name, out var audio))
-        {
-            clip = audio.Clip;
-            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
-            return true;
-        }
-
-        // TODO: Remove Linq call and fix shitcode
-        var clipData = Config.CustomClips.FirstOrDefault(x => x.Name == name);
-        var resolvedFilePath = AudioPackLoader.ResolvePath(this, name);
-
-        if (clipData == null || resolvedFilePath == null)
-        {
-            clip = null;
-            return false;
-        }
-
-        if (PendingClipLoad.HasValue && PendingClipLoad.Value.ClipName != name)
-        {
-            // We have to clear this one out first!
-            FinalizeLoadIfAny();
-        }
-
-        PendingClipLoad = (name, Task.Run(() =>
-        {
-            return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
-        }));
-        
-        // Gotta wait for it right away and check ready clips again
-        FinalizeLoadIfAny();
-
-        if (ReadyAudio.TryGetValue(name, out audio))
-        {
-            clip = audio.Clip;
-            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
-            return true;
-        }
-        
-        clip = null;
-        return false;
-    }
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetFlag(PackFlags flag) => Flags |= flag;
 

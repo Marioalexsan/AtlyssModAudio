@@ -1,10 +1,9 @@
-﻿using System.Runtime.CompilerServices;
-using BepInEx;
+﻿using BepInEx;
 using HarmonyLib;
 
 namespace Marioalexsan.ModAudio.Atlyss;
 
-[BepInPlugin("Marioalexsan.ModAudio.Atlyss", "ModAudio (ATLYSS Features)", Marioalexsan.ModAudio.ModInfo.VERSION)]
+[BepInPlugin("Marioalexsan.ModAudio.Atlyss", "ModAudio (ATLYSS Features)", ModInfo.VERSION)]
 [BepInDependency("Marioalexsan.ModAudio")]
 [BepInProcess("ATLYSS.exe")]
 public class BepinexEntrypoint : BaseUnityPlugin

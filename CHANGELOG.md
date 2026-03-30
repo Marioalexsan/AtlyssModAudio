@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.2.1] - 2025-Mar-29
+## [4.3.0] - 2026.Mar.29
+
+### Changed
+- Changed some logs so that they provide better details about errors
+- Pack and Engine logs from ModAudio's debug display are now also written to BepInEx's log by default
+- Added configuration options and EasySettings controls to configure debug display writing to BepInEx's log
+  - `WriteAudioLogsToBepinexLog` - write the Audio tab (default: `false`)
+  - `WritePackLogsToBepinexLog` - write the Pack tab (default: `true`, see above)
+  - `WriteScriptLogsToBepinexLog` - write the Script tab (default: `false`)
+  - `WriteEngineLogsToBepinexLog` - write the Engine tab (default: `true`, see above)
+- Updated EasySettings dependency to 1.3.0 and moved ModAudio configuration to a custom tab
+- (WIP) Added options to the debug menu to toggle audio packs and reload the engine from there - this is
+  mainly meant to be used with games that do not have EasySettings support
+
+### Fixed
+- Fixed an issue with using `<game>` prefix for vanilla clips
+- Fixed debug display not being draggable when the second or third tab are active
+- BugAudio died! But then it lived! Truly remarkable
+
+## [4.2.1] - 2026-Mar-29
 
 ### Fixed
 - Logic issue related to preloading with clip aliases
@@ -21,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Important: ModAudio now loads and unloads all audio on demand**
   - This will significantly reduce both load times and memory usage, but it may introduce some stuttering when the audio is first used
   - Might have a significant impact in the case of big audio packs, like Vixine's Chaos Soundpack, or TZH's Death's Door Audio
-  - By default, audio clips are unloaded if 150 seconds pass without them being used. This duration be tweaked in the configuration file, but it is strongly recommended to keep the default value intact
+  - By default, audio clips are unloaded if 150 seconds pass without them being used. This duration can be tweaked in the configuration file, but it is strongly recommended to keep the default value intact
 - Added a route effect `map_name` that specifies the map on which the route should be active
   - Map names are specified in the same way they are shown in-game, i.e. `map_name : Crescent Road`
   - A special value of `map_name : ___nomap___` can be used to make the route apply only when there is no map available (main menu, etc.)
@@ -58,13 +77,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- For `ATLYSS`: source clip `modaudio_map_{map_name}_{day/night/action/music}` for map names is deprecated in favor of `modaudio_atlyss_map_{map_name}_{day/night/action/music}`
+- For `ATLYSS`: source clip `modaudio_map_{map_name}_{day/night/action/null}` for map names is deprecated in favor of `modaudio_atlyss_map_{map_name}_{day/night/action/null}`
     - The previous option will remain supported, but try to migrate to the one with `atlyss` in the prefix if possible
-- For `ATLYSS`: source clips of the format `modaudio_atlyss_map_{map_name}_{day/night/action/music}` are now implemented as aliases, and will work for targeting
+- For `ATLYSS`: source clips of the format `modaudio_atlyss_map_{map_name}_{day/night/action/null}` are now implemented as aliases, and will work for targeting
   day / night / action / null music regardless of whenever there is an actual underlying clip available or not
   - If `modaudio_atlyss_map_{map_name}_null` is routed to `___disable___`, or the game doesn't have null music for the given map, then day / night cycle music will be used
   - If `modaudio_atlyss_map_{map_name}_null` is routed to a proper clip, then the area will use the null music instead of day / night music (i.e. it will play 24/7)
-- A new special clip `___disable___` is added for switching from day/night to null map music. Outside of that content, it behaves the same as `___nothing___`
+- A new special clip `___disable___` is added for switching from day/night to null map music. Outside of that context, it behaves the same as `___nothing___`
 - Added some metrics for Lua script initialization
 - Routes of the format `source ~ effects` (i.e. without overlays nor replacements) now act as if they have an implicit `___default___` replacement
     - This should fix issues with not being able to modify vanilla clips in place using those route styles

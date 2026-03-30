@@ -1,15 +1,12 @@
 ﻿using Lua;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Marioalexsan.ModAudio.Scripting.Data;
+namespace Marioalexsan.ModAudio.Scripting;
 
 [LuaObject]
 public partial class ModAudioModule
 {
     [LuaMember("context")]
-    public static ILuaUserData? Context { get; internal set; } = null;
+    public static ILuaUserData? Context { get; internal set; }
 
     [LuaMember("engine")]
     public static EngineData Engine { get; internal set; } = new EngineData();

@@ -14,7 +14,7 @@ internal static class Logging
 
     private static ManualLogSource InternalLogger => ModAudio.Logger;
 
-    private static void Log(object data, LogLevel level = LogLevel.Info, ConfigEntry<bool>? toggle = null)
+    public static void Log(object data, LogLevel level = LogLevel.Info, ConfigEntry<bool>? toggle = null)
     {
         if (toggle != null && !toggle.Value)
             return;

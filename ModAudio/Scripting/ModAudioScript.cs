@@ -2,8 +2,6 @@
 using BepInEx.Logging;
 using Lua;
 using Lua.Standard;
-using Marioalexsan.ModAudio.HarmonyPatches;
-using Marioalexsan.ModAudio.Scripting.Data;
 using System.Text;
 
 namespace Marioalexsan.ModAudio.Scripting;
@@ -27,8 +25,6 @@ public class ModAudioScript : IModAudioScript
 
     public AudioPack Pack { get; }
 
-    private readonly CancellationTokenSource _tokenSource = new();
-
     public ModAudioScript(AudioPack pack, string rootScript)
     {
         Pack = pack;
@@ -50,7 +46,7 @@ public class ModAudioScript : IModAudioScript
         var gameData = AudioEngine.Game.GameData as ILuaUserData;
         
         if (gameData == null || ModAudioModule.Context == null)
-            Logging.LogWarning("Either game data or context for Lua was null! Please report this to the mod developer!");
+            AudioDebugDisplay.LogScript(LogLevel.Error, null, "Either game data or context for Lua was null! Please report this to the mod developer!");
         
         _luaState.Environment["modaudio"] = LuaValue.FromUserData(new ModAudioModule());
         _luaState.Environment["game"] = LuaValue.FromUserData(gameData);
@@ -113,7 +109,7 @@ public class ModAudioScript : IModAudioScript
                 stringBuilder.Append(' ');
         }
 
-        AudioDebugDisplay.LogScript(LogLevel.Info, $"[{Pack.Config.DisplayName}] {stringBuilder}");
+        AudioDebugDisplay.LogScript(LogLevel.Info, Pack, stringBuilder.ToString());
 
         return new(context.Return());
     }
@@ -135,14 +131,14 @@ public class ModAudioScript : IModAudioScript
             if (result.Length == 0 || !result[0].TryRead<LuaTable>(out var table))
                 throw new InvalidOperationException("Expected an exported table from the Lua module!");
             
-            AudioDebugDisplay.LogPack(LogLevel.Info, $"Loading __routes.lua for {Pack.Config.Id} took {stopwatch.Elapsed.TotalMilliseconds:F2}ms.");
+            AudioDebugDisplay.LogScript(LogLevel.Debug, null, $"Loading __routes.lua for {Pack.Config.Id} took {stopwatch.Elapsed.TotalMilliseconds:F2}ms.");
 
             _rootModule = table;
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"The root module for pack {Pack.Config.Id} encountered an error!");
-            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+            AudioDebugDisplay.LogScript(LogLevel.Error, null, $"The root module for pack {Pack.Config.Id} encountered an error!");
+            AudioDebugDisplay.LogScript(LogLevel.Error, null, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
     }
@@ -173,8 +169,8 @@ public class ModAudioScript : IModAudioScript
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Update script call failed for pack {Pack.Config.Id}, script {Pack.Config.PackScripts.Update}!");
-            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Update script call failed for pack {Pack.Config.Id}, script {Pack.Config.PackScripts.Update}!");
+            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
         PostScriptActions();
@@ -208,12 +204,12 @@ public class ModAudioScript : IModAudioScript
             var tokenSource = GetTokenSourceWithExecutionLimits();
 
             // TODO: Check whenever scripts are allocating way too much total memory
-            _ = _luaState.Call(targetGroup, [new LuaValue((TargetGroupData)routeData)], tokenSource.Token).Result;
+            _ = _luaState.Call(targetGroup, [new LuaValue(routeData)], tokenSource.Token).Result;
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogPack(LogLevel.Error, $"Target group script call failed for pack {Pack.Config.Id}, script {route.TargetGroupScript}!");
-            AudioDebugDisplay.LogPack(LogLevel.Error, e.ToString());
+            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Target group script call failed for pack {Pack.Config.Id}, script {route.TargetGroupScript}!");
+            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             routeData.SkipRoute = true;
         }

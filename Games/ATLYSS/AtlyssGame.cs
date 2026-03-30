@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Lua;
 using Marioalexsan.ModAudio.Atlyss.HarmonyPatches;
-using Marioalexsan.ModAudio.Scripting.Data;
-using Marioalexsan.ModAudio.Scripting.Proxies;
+using Marioalexsan.ModAudio.Atlyss.Scripting.Data;
+using Marioalexsan.ModAudio.Atlyss.Scripting.Proxies;
 using UnityEngine;
 using UnityEngine.Audio;
 
@@ -142,7 +142,7 @@ public class AtlyssGame : ModAudioGame
         return _cachedMapCleanedName = string.Concat(instance._mapName.ToLower().Where(x => 'a' <= x && x <= 'z'));
     }
 
-    private static MapInstance? _cachedMap = null;
+    private static MapInstance? _cachedMap;
     private static string _cachedMapCleanedName = "";
 
     public override bool TryLoadVanillaClip(string identifier, [NotNullWhen(true)] out AudioClip? clip)

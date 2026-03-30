@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Runtime.CompilerServices;
+using BepInEx;
 
 namespace Marioalexsan.ModAudio;
 
@@ -10,7 +11,7 @@ internal static class ForeachCache<T>
     private static T[] _cache = new T[InitialCapacity];
     
     // ReSharper disable once StaticMemberInGenericType
-    private static int CacheSize = 0;
+    private static int CacheSize;
 
     // Note: This method sucks
     // Make sure you're done with the previous span before trying to call this method again,
@@ -138,5 +139,32 @@ internal static class Utils
         while (randomValue >= 0.0);
 
         return selections[selectedIndex];
+    }
+    
+    public static string AliasRootPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+        
+        return Path.GetFullPath(path)
+            .Replace('\\', '/')
+            .Replace($"{Path.GetFullPath(Paths.PluginPath).Replace('\\', '/').TrimEnd('/')}/", "plugin://")
+            .Replace($"{Path.GetFullPath(Paths.ConfigPath).Replace('\\', '/').TrimEnd('/')}/", "config://");
+    }
+
+    public static string ResolvePathAlias(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        path = path.Replace('\\', '/');
+        
+        if (path.StartsWith("plugin://"))
+            return Path.Combine(Paths.PluginPath, path.Substring("plugin://".Length));
+        
+        if (path.StartsWith("config://"))
+            return Path.Combine(Paths.ConfigPath, path.Substring("config://".Length));
+
+        return path;
     }
 }

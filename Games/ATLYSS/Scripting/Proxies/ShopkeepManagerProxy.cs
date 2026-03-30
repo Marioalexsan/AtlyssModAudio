@@ -1,6 +1,6 @@
 ﻿using Lua;
 
-namespace Marioalexsan.ModAudio.Scripting.Proxies;
+namespace Marioalexsan.ModAudio.Atlyss.Scripting.Proxies;
 
 [LuaObject]
 public partial class ShopkeepManagerProxy

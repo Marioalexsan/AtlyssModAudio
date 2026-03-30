@@ -1,9 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using BepInEx;
-using BepInEx.Bootstrap;
-using Lua;
-using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
 

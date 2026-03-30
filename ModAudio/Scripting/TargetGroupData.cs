@@ -1,9 +1,6 @@
 ﻿using Lua;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Marioalexsan.ModAudio.Scripting.Data;
+namespace Marioalexsan.ModAudio.Scripting;
 
 [LuaObject]
 public partial class TargetGroupData

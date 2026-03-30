@@ -31,19 +31,11 @@ public static class AudioClipLoader
         }
     }
 
-    public static readonly string[] SupportedLoadExtensions = [
+    public static readonly string[] SupportedExtensions = [
         ".wav",
         ".ogg",
         ".mp3"
     ];
-
-    public static readonly string[] SupportedStreamExtensions = [
-        ".wav",
-        ".ogg",
-        ".mp3"
-    ];
-
-    public static readonly string[] SupportedExtensions = SupportedLoadExtensions.Concat(SupportedStreamExtensions).Distinct().ToArray();
 
     /// <summary>
     /// Creates an empty clip with the given name and duration.

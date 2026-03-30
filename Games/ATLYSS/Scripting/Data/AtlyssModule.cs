@@ -1,10 +1,7 @@
 ﻿using Lua;
-using Marioalexsan.ModAudio.Scripting.Proxies;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using Marioalexsan.ModAudio.Atlyss.Scripting.Proxies;
 
-namespace Marioalexsan.ModAudio.Scripting.Data;
+namespace Marioalexsan.ModAudio.Atlyss.Scripting.Data;
 
 [LuaObject]
 public partial class AtlyssModule
