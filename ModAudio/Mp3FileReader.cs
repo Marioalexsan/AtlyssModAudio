@@ -1,6 +1,10 @@
 ﻿// MIT License, NAudio, Copyright 2020 Mark Heath
 // https://github.com/naudio/NAudio/blob/v2.2.1/NAudio/Mp3FileReader.cs
 
+using Marioalexsan.ModAudio;
+using NAudio.Wave;
+using NLayer.NAudioSupport;
+
 #pragma warning disable IDE0130 // Namespace does not match folder structure
 // ReSharper disable once CheckNamespace
 namespace NAudio.Wave
@@ -14,7 +18,7 @@ namespace NAudio.Wave
     {
         /// <summary>Supports opening a MP3 file</summary>
         public Mp3FileReader(string mp3FileName)
-            : base(File.OpenRead(mp3FileName), CreateAcmFrameDecompressor, true)
+            : base(File.OpenRead(mp3FileName), CreateFrameDecompressor, true)
         {
         }
 
@@ -24,7 +28,7 @@ namespace NAudio.Wave
         /// </summary>
         /// <param name="inputStream">The incoming stream containing MP3 data</param>
         public Mp3FileReader(Stream inputStream)
-            : base(inputStream, CreateAcmFrameDecompressor, false)
+            : base(inputStream, CreateFrameDecompressor, false)
         {
 
         }
@@ -34,10 +38,12 @@ namespace NAudio.Wave
         /// </summary>
         /// <param name="mp3Format">A WaveFormat object based </param>
         /// <returns></returns>
-        public static IMp3FrameDecompressor CreateAcmFrameDecompressor(WaveFormat mp3Format)
+        public static IMp3FrameDecompressor CreateFrameDecompressor(WaveFormat mp3Format)
         {
-            // new DmoMp3FrameDecompressor(this.Mp3WaveFormat); 
-            return new AcmMp3FrameDecompressor(mp3Format);
+            // return new DmoMp3FrameDecompressor(this.Mp3WaveFormat); 
+            return ModAudio.UseSystemAcmCodecs.Value
+                ? new AcmMp3FrameDecompressor(mp3Format)
+                : new Mp3FrameDecompressor(mp3Format);
         }
     }
 }

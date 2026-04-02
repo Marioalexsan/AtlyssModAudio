@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Collections;
+using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -164,6 +165,14 @@ public class ModAudio : MonoBehaviour
 
     private void OnNewScene(Scene scene, LoadSceneMode loadMode)
     {
+        StartCoroutine(NewSceneCheck());
+    }
+
+    private IEnumerator NewSceneCheck()
+    {
+        // Wait exactly one frame
+        yield return null;
+        
         AudioEngine.TriggerGarbageCollection();
         AudioEngine.DetectNewSources();
         AudioEngine.TryPreloadSceneClips();
@@ -192,6 +201,8 @@ public class ModAudio : MonoBehaviour
     public static ConfigEntry<bool> WritePackLogsToBepinexLog { get; internal set; } = null!;
     public static ConfigEntry<bool> WriteScriptLogsToBepinexLog { get; internal set; } = null!;
     public static ConfigEntry<bool> WriteEngineLogsToBepinexLog { get; internal set; } = null!;
+    
+    public static ConfigEntry<bool> UseSystemAcmCodecs { get; internal set; } = null!;
 
     internal static void InitializePackConfiguration()
     {

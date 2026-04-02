@@ -3,7 +3,7 @@
     <PropertyGroup>
         <AssemblyName>Marioalexsan.ModAudio</AssemblyName>
         <Product>ModAudio</Product>
-        <Version>4.3.0</Version>
+        <Version>4.3.1</Version>
         <RootNamespace>Marioalexsan.ModAudio</RootNamespace>
         <EnableReleaseProfiling>true</EnableReleaseProfiling>
     </PropertyGroup>
@@ -39,12 +39,14 @@
             <IncludeAssets>all</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-
+        
         <Reference Include="$(AssemblyCSharpDir)/UnityEngine.UI.dll" />
         
         <PackageReference Include="NAudio.Core" Version="2.2.1" />
         <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
         <PackageReference Include="NVorbis" Version="0.10.5" />
+        <PackageReference Include="NLayer" Version="1.16.0" />
+        <PackageReference Include="NLayer.NAudioSupport" Version="1.4.0" />
 
         <PackageReference Include="Newtonsoft.Json" Version="13.0.2" Private="False" />
         <PackageReference Include="Nessie-EasySettings" Version="1.3.0" Private="False" />
@@ -56,15 +58,6 @@
     
     <!-- Extra folders -->
     <ItemGroup>
-        <Content Include="..\Documentation\0.Overview.md">
-          <Link>AtlyssModAudio\Documentation\0.Overview.md</Link>
-        </Content>
-        <Content Include="..\Documentation\1.Features.md">
-          <Link>AtlyssModAudio\Documentation\1.Features.md</Link>
-        </Content>
-        <Content Include="..\Documentation\2.1.Replacements.md">
-          <Link>AtlyssModAudio\Documentation\2.1.Replacements.md</Link>
-        </Content>
         <Content Include="Assets/**/*" />
         <Content Include="TestPacks/**/*" />
     </ItemGroup>
@@ -92,6 +85,8 @@
         <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NAudio.Core.dll" />
         <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NAudio.WinMM.dll" />
         <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NVorbis.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NLayer.dll" />
+        <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="NLayer.NAudioSupport.dll" />
         <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="System.Memory.dll" />
         <ThunderstoreFile Visible="false" Folder="plugins" FromBuild="true" Include="System.Runtime.CompilerServices.Unsafe.dll" />
 
@@ -99,8 +94,8 @@
         <ThunderstoreFile Visible="false" Include="TestPacks/**/*.*" Folder="plugins/TestPacks/%(RecursiveDir)" />
     </ItemGroup>
     <ItemGroup>
-      <Content Include="..\Documentation\1.Your-First-Audio-Pack.md">
-        <Link>AtlyssModAudio\Documentation\1.Your-First-Audio-Pack.md</Link>
-      </Content>
+      <Folder Include="..\Documentation\">
+        <Link>AtlyssModAudio\Documentation</Link>
+      </Folder>
     </ItemGroup>
 </Project>

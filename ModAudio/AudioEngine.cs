@@ -188,7 +188,9 @@ internal static class AudioEngine
     {
         AudioDebugDisplay.LogEngine(LogLevel.Debug, "Running garbage collection for custom audio");
         
-        var canCollectAudioBefore = DateTime.UtcNow - TimeSpan.FromSeconds(ModAudio.AudioCacheTimeInSeconds.Value);
+        // Referenced audio (i.e. the audio source that preloaded it is still alive) will be kept loaded for longer
+        var canCollectUnreferencedAudioBefore = DateTime.UtcNow - TimeSpan.FromSeconds(ModAudio.AudioCacheTimeInSeconds.Value);
+        var canCollectReferencedAudioBefore = DateTime.UtcNow - 4 * TimeSpan.FromSeconds(ModAudio.AudioCacheTimeInSeconds.Value);
         
         foreach (var pack in AudioPacks)
         {
@@ -200,6 +202,11 @@ internal static class AudioEngine
                 
                 if (!audioData.Value.Clip || IsSpecialClip(audioData.Value.Clip.name))
                     continue; // These shouldn't be collected
+
+                var requestingSource = audioData.Value.RequestedBy;
+                var canCollectAudioBefore = requestingSource != null
+                    ? canCollectReferencedAudioBefore
+                    : canCollectUnreferencedAudioBefore;
                 
                 if (audioData.Value.LastUsed < canCollectAudioBefore)
                 {
@@ -274,6 +281,8 @@ internal static class AudioEngine
             AudioDebugDisplay.LogEngine(LogLevel.Warning, $"This game has experimental support at best. Lua scripting might be limited, and no game specific features will be available.");
             AudioDebugDisplay.LogEngine(LogLevel.Warning, $"If you find any issues, bugs, or have constructive feedback, please report them at {IssuesLink}.");
         }
+        
+        AudioDebugDisplay.LogEngine(LogLevel.Info, "UseSystemAcmCodecs is set to " + ModAudio.UseSystemAcmCodecs.Value);
 
         try
         {
@@ -693,6 +702,7 @@ internal static class AudioEngine
             TrackedPlayOnAwakeSourceStates.Add(source, false); // Assume we haven't ran AudioPlayed() for this
 
         state.AppliedState = state.InitialState;
+        
         return state;
     }
 
@@ -1055,7 +1065,7 @@ internal static class AudioEngine
         }
         else
         {
-            destinationClip = pack.LoadClip(randomSelection.Name);
+            destinationClip = pack.LoadClip(randomSelection.Name, source.Audio);
         }
 
         if (destinationClip != null)
@@ -1146,6 +1156,7 @@ internal static class AudioEngine
 
     // Extremely basic method, all things considered
     // This should only be used to preload audio detected after a scene load due to performance considerations
+    // TODO: rewrite preloading! this sucks!!!!
     internal static void TryPreloadSceneClips()
     {
         var trackedSources = ForeachCache<KeyValuePair<AudioSource, ModAudioSource>>.CacheFrom(TrackedSources);
@@ -1195,10 +1206,10 @@ internal static class AudioEngine
                 if (matches)
                 {
                     for (int clipIndex = 0; clipIndex < route.ReplacementClips.Count; clipIndex++)
-                        pack.QueuePreload(route.ReplacementClips[clipIndex].Name);
+                        pack.QueuePreload(route.ReplacementClips[clipIndex].Name, source.Audio);
                     
                     for (int clipIndex = 0; clipIndex < route.OverlayClips.Count; clipIndex++)
-                        pack.QueuePreload(route.OverlayClips[clipIndex].Name);
+                        pack.QueuePreload(route.OverlayClips[clipIndex].Name, source.Audio);
                 }
             }
         }
@@ -1358,7 +1369,7 @@ internal static class AudioEngine
             }
             else
             {
-                destinationClip = selectedPack.LoadClip(randomSelection.Name);
+                destinationClip = selectedPack.LoadClip(randomSelection.Name, source.Audio);
             }
 
             if (destinationClip != null)

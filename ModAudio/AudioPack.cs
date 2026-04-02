@@ -24,6 +24,7 @@ public class AudioPack : IDisposable
     {
         public AudioClip Clip;
         public IAudioStream? Stream;
+        public AudioSource? RequestedBy;
         public DateTime LastUsed;
     }
     
@@ -39,9 +40,9 @@ public class AudioPack : IDisposable
 
     // These clips are loaded / streamed when needed
     public Dictionary<string, AudioData> ReadyAudio { get; } = [];
-    private (string ClipName, Task<AudioClipLoader.LoadResult> LoadTask)? PendingClipLoad;
+    private (string ClipName, AudioSource? RequestingSource, Task<AudioClipLoader.LoadResult> LoadTask)? PendingClipLoad;
 
-    private Queue<string> PreloadQueue { get; } = [];
+    private Queue<(string ClipName, AudioSource? RequestingSource)> PreloadQueue { get; } = [];
     
     // Statistics
     public int CurrentStreamedClips { get; set; }
@@ -50,10 +51,9 @@ public class AudioPack : IDisposable
 
     public IModAudioScript? Script { get; set; }
 
-    public void QueuePreload(string clipName)
+    public void QueuePreload(string clipName, AudioSource? requestingSource)
     {
-        if (!PreloadQueue.Contains(clipName))
-            PreloadQueue.Enqueue(clipName);
+        PreloadQueue.Enqueue((clipName, requestingSource));
     }
 
     public void Dispose()
@@ -94,10 +94,11 @@ public class AudioPack : IDisposable
             return;
 
         string? clipToLoad = null;
+        AudioSource? preloadSource = null;
 
         while (PreloadQueue.Count > 0)
         {
-            var nextClip = PreloadQueue.Dequeue();
+            var (nextClip, requestingSource) = PreloadQueue.Dequeue();
 
             if (AudioEngine.IsSpecialClip(nextClip) || AudioEngine.IsVanillaClip(nextClip, out _))
                 continue; // Skip these
@@ -105,6 +106,7 @@ public class AudioPack : IDisposable
             if (!ReadyAudio.ContainsKey(nextClip))
             {
                 clipToLoad = nextClip;
+                preloadSource = requestingSource;
                 break;
             }
         }
@@ -124,18 +126,22 @@ public class AudioPack : IDisposable
         
         AudioDebugDisplay.LogPack(LogLevel.Debug, this, $"Loading {clipToLoad}...");
         
-        PendingClipLoad = (clipToLoad, Task.Run(() =>
+        PendingClipLoad = (clipToLoad, preloadSource, Task.Run(() =>
         {
             return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
         }));
     }
 
-    public AudioClip? LoadClip(string name)
+    public AudioClip? LoadClip(string name, AudioSource? requestingSource)
     {
         if (ReadyAudio.TryGetValue(name, out var audio))
         {
             var clip = audio.Clip;
-            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
+            ReadyAudio[name] = audio with
+            {
+                RequestedBy = requestingSource,
+                LastUsed = DateTime.UtcNow
+            };
             return clip;
         }
 
@@ -154,7 +160,7 @@ public class AudioPack : IDisposable
             FinalizeLoadIfAny();
         }
 
-        PendingClipLoad = (name, Task.Run(() =>
+        PendingClipLoad = (name, requestingSource, Task.Run(() =>
         {
             return AudioClipLoader.CreateFromFile(clipData.Name, resolvedFilePath, clipData.Volume);
         }));
@@ -165,7 +171,11 @@ public class AudioPack : IDisposable
         if (ReadyAudio.TryGetValue(name, out audio))
         {
             var clip = audio.Clip;
-            ReadyAudio[name] = audio with { LastUsed = DateTime.UtcNow };
+            ReadyAudio[name] = audio with
+            {
+                RequestedBy = requestingSource,
+                LastUsed = DateTime.UtcNow
+            };
             return clip;
         }
         
@@ -179,7 +189,7 @@ public class AudioPack : IDisposable
      
         using var loadFinalizer = Profiling.LoadFinalizer.Auto();
         
-        var (clipName, loadTask) = PendingClipLoad.Value;
+        var (clipName, requestingSource, loadTask) = PendingClipLoad.Value;
 
         IAudioStream? openStream = null;
         AudioClip clip;
@@ -232,6 +242,7 @@ public class AudioPack : IDisposable
         {
             Clip = clip,
             Stream = openStream,
+            RequestedBy = requestingSource,
             LastUsed = DateTime.UtcNow
         };
         PendingClipLoad = null;

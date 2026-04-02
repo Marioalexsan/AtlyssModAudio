@@ -46,7 +46,7 @@ public class ModAudioScript : IModAudioScript
         var gameData = AudioEngine.Game.GameData as ILuaUserData;
         
         if (gameData == null || ModAudioModule.Context == null)
-            AudioDebugDisplay.LogScript(LogLevel.Error, null, "Either game data or context for Lua was null! Please report this to the mod developer!");
+            AudioDebugDisplay.LogEngine(LogLevel.Error, "Either game data or context for Lua was null! Please report this to the mod developer!");
         
         _luaState.Environment["modaudio"] = LuaValue.FromUserData(new ModAudioModule());
         _luaState.Environment["game"] = LuaValue.FromUserData(gameData);
@@ -60,20 +60,10 @@ public class ModAudioScript : IModAudioScript
         _luaState.Dispose();
     }
     
-    private CancellationTokenSource GetTokenSourceWithExecutionLimitsForInitialization()
+    private CancellationTokenSource GetHardLimitForExecution()
     {
-        // Script initializers will be killed if they take more than 2500ms to execute
-        // Note: script initialization is ass and the first script init can take significantly more time
-        // than the rest
+        // Scripts will be killed if they take more than 2500ms to execute
         return new CancellationTokenSource(TimeSpan.FromMilliseconds(2500));
-    }
-
-    private CancellationTokenSource GetTokenSourceWithExecutionLimits()
-    {
-        // Scripts will be killed if they take more than 100ms to execute
-        // This is equivalent to eating 6-7 frames' worth of time at 60 FPS, which means something is likely going terribly wrong
-        // Ideally, script calls should be up to 1-5ms at most
-        return new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
     }
 
     // NOTE: Lua-CSharp doesn't have "..." / "arg" implemented for some reason, so we need to do this in script land
@@ -121,7 +111,7 @@ public class ModAudioScript : IModAudioScript
 
         try
         {
-            var tokenSource = GetTokenSourceWithExecutionLimitsForInitialization();
+            var tokenSource = GetHardLimitForExecution();
 
             var stopwatch = Stopwatch.StartNew();
             var result = _luaState.DoStringAsync(_rootScript, $"__routes.lua for {Pack.Config.Id}", tokenSource.Token).Result;
@@ -131,14 +121,14 @@ public class ModAudioScript : IModAudioScript
             if (result.Length == 0 || !result[0].TryRead<LuaTable>(out var table))
                 throw new InvalidOperationException("Expected an exported table from the Lua module!");
             
-            AudioDebugDisplay.LogScript(LogLevel.Debug, null, $"Loading __routes.lua for {Pack.Config.Id} took {stopwatch.Elapsed.TotalMilliseconds:F2}ms.");
+            AudioDebugDisplay.LogPack(LogLevel.Debug, null, $"Loading __routes.lua for {Pack.Config.Id} took {stopwatch.Elapsed.TotalMilliseconds:F2}ms.");
 
             _rootModule = table;
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogScript(LogLevel.Error, null, $"The root module for pack {Pack.Config.Id} encountered an error!");
-            AudioDebugDisplay.LogScript(LogLevel.Error, null, $"Exception data: {e}");
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"The root module for pack {Pack.Config.Id} encountered an error!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, null, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
     }
@@ -163,14 +153,14 @@ public class ModAudioScript : IModAudioScript
         PreScriptActions();
         try
         {
-            var tokenSource = GetTokenSourceWithExecutionLimits();
+            var tokenSource = GetHardLimitForExecution();
 
             _ = _luaState.Call(update, [], tokenSource.Token).Result;
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Update script call failed for pack {Pack.Config.Id}, script {Pack.Config.PackScripts.Update}!");
-            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Exception data: {e}");
+            AudioDebugDisplay.LogPack(LogLevel.Error, Pack, $"Update script call failed for pack {Pack.Config.Id}, script {Pack.Config.PackScripts.Update}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, Pack, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
         }
         PostScriptActions();
@@ -201,15 +191,15 @@ public class ModAudioScript : IModAudioScript
         PreScriptActions();
         try
         {
-            var tokenSource = GetTokenSourceWithExecutionLimits();
+            var tokenSource = GetHardLimitForExecution();
 
             // TODO: Check whenever scripts are allocating way too much total memory
             _ = _luaState.Call(targetGroup, [new LuaValue(routeData)], tokenSource.Token).Result;
         }
         catch (Exception e)
         {
-            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Target group script call failed for pack {Pack.Config.Id}, script {route.TargetGroupScript}!");
-            AudioDebugDisplay.LogScript(LogLevel.Error, Pack, $"Exception data: {e}");
+            AudioDebugDisplay.LogPack(LogLevel.Error, Pack, $"Target group script call failed for pack {Pack.Config.Id}, script {route.TargetGroupScript}!");
+            AudioDebugDisplay.LogPack(LogLevel.Error, Pack, $"Exception data: {e}");
             Pack.SetFlag(PackFlags.HasEncounteredErrors | PackFlags.ForceDisableScripts);
             routeData.SkipRoute = true;
         }

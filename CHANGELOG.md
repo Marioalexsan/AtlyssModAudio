@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.3.0] - 2026.Mar.29
+## [4.3.1] - 2026-Apr-02
+
+### Fixed
+- ModAudio now uses NLayer for decoding MP3 files, which should hopefully help with missing codecs on some systems
+  - Added a configuration option `UseSystemAcmCodecs` (false by default) that specifies whenever to use the old implementation for MP3 decoding instead of NLayer
+- Increased the execution time limit for all Lua calls to 2500ms to avoid rare stutters causing crashes
+- Moved some logs from the Script tab to the Pack tab, so that Script only deals with logs coming directly from Lua code
+- Tiny adjustments to preloading logic
+
+## [4.3.0] - 2026-Mar-29
 
 ### Changed
 - Changed some logs so that they provide better details about errors

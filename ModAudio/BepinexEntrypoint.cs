@@ -54,6 +54,14 @@ public class BepinexEntrypoint : BaseUnityPlugin
             "**Do not modify this unless you know what you're doing!**"
         );
         
+        ModAudio.UseSystemAcmCodecs = Config.Bind(
+            "Experimental",
+            nameof(ModAudio.UseSystemAcmCodecs),
+            false, // Use NLayer by default
+            "Use the codecs available on the system for decoding MP3 files instead of NLayer's custom implementation. " +
+            "**Do not modify this unless you know what you're doing!**"
+        );
+        
         ModAudio.WriteAudioLogsToBepinexLog = Config.Bind(
             "Logging",
             nameof(ModAudio.WriteAudioLogsToBepinexLog),
