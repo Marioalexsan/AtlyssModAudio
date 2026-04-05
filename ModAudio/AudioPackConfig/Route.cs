@@ -104,6 +104,14 @@ public class Route
     public bool SmoothDynamicTargeting { get; set; } = false;
 
     /// <summary>
+    /// If set to true, and dynamic targeting is enabled, then audio switching will preserve the play position to simulate playing the target groups "in parallel".
+    /// For example, switching from a clip that's at a play position of 150 seconds will start the new clip at 150 seconds.
+    /// If the new clip happens to be shorter than that, ModAudio will "wrap around" the play position so that it lines up.
+    /// For example, switching from a play position of 150 seconds to a clip that has 125 seconds of audio would cause it to start at 25 seconds (remainder of 150 divided by 125).
+    /// </summary>
+    public bool ContinuousDynamicTargeting { get; set; } = false;
+
+    /// <summary>
     /// Important: This is an experimental option and can be buggy.
     /// If set to true, the engine will try to chain the resulting replacements through the routing system again.
     /// This can be handy if you try to reroute to a vanilla clip - in this case, the vanilla clip will then be rerouted to other routes' custom music.

@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using BepInEx.Logging;
 using UnityEngine;
 
@@ -18,14 +19,47 @@ public enum DebugMessageCategories
 // Don't shy away from caching data if needed
 public class AudioDebugDisplay : MonoBehaviour
 {
+    [Flags]
+    public enum AudioLogFlags
+    {
+        None = 0,
+        Routed = 1 << 0,
+        Overlay = 1 << 1,
+        Is2DSound = 1 << 2,
+    }
+    
     private struct MessageLog
     {
         public LogLevel Level;
         public DebugMessageCategories Category;
         public string Message;
-        public string Tags; // Comma-separated by convention
-        public float CustomFloatData; // Custom data
+        public AudioLogFlags Flags;
+        public string? AudioGroup;
+        public float AudioDistance; // Custom data
         public bool ShouldDisplayCached; // Cached information about whenever this should render during this frame
+        
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SetFlag(AudioLogFlags flag) => Flags |= flag;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ClearFlag(AudioLogFlags flag) => Flags &= ~flag;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool HasFlag(AudioLogFlags flag) => (Flags & flag) == flag; // Do not use Enum.HasFlag, it's a boxing operation and allocates junk
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void AssignFlag(AudioLogFlags flag, bool shouldBeSet)
+        {
+            if (shouldBeSet)
+            {
+                SetFlag(flag);
+            }
+            else
+            {
+                ClearFlag(flag);
+            }
+        }
     }
 
     // The actual capacity will be 9999 due to how the range is implemented; fixing this would overcomplicate the logic
@@ -34,51 +68,67 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _bufferStart; // Inclusive
     private static int _bufferEnd; // Exclusive
     
-    public static void LogAudio(LogLevel level, string message, string tags = "", float distance = 0f)
+    public static void LogAudio(LogLevel level, string message, AudioLogFlags logFlags, string? audioGroup, float distance)
     {
-        AudioDebugDisplay.Log(DebugMessageCategories.Audio, level, message, tags, distance);
+        AudioDebugDisplay.Log(new MessageLog()
+        {
+            Category = DebugMessageCategories.Audio,
+            Level = level,
+            Message = message,
+            Flags = logFlags,
+            AudioGroup = audioGroup,
+            AudioDistance = distance,
+        });
 
         if (ModAudio.WriteAudioLogsToBepinexLog.Value)
             Logging.Log($"[Audio] {message}", level);
     }
     
-    public static void LogPack(LogLevel level, AudioPack? pack, string message, string tags = "")
+    public static void LogPack(LogLevel level, AudioPack? pack, string message)
     {
         var extendedMessage = $"[{pack?.Config.DisplayName ?? "ModAudio"}] {message}";
-        AudioDebugDisplay.Log(DebugMessageCategories.Pack, level, extendedMessage, tags, 0f);
+        
+        AudioDebugDisplay.Log(new MessageLog()
+        {
+            Category = DebugMessageCategories.Pack,
+            Level = level,
+            Message = extendedMessage,
+        });
 
         if (ModAudio.WritePackLogsToBepinexLog.Value)
             Logging.Log($"[Pack] {extendedMessage}", level);
     }
     
-    public static void LogScript(LogLevel level, AudioPack? script, string message, string tags = "")
+    public static void LogScript(LogLevel level, AudioPack? script, string message)
     {
         var extendedMessage = $"[{script?.Config.DisplayName ?? "ModAudio"}] {message}";
-        AudioDebugDisplay.Log(DebugMessageCategories.Script, level, extendedMessage, tags, 0f);
+        
+        AudioDebugDisplay.Log(new MessageLog()
+        {
+            Category = DebugMessageCategories.Script,
+            Level = level,
+            Message = extendedMessage,
+        });
 
         if (ModAudio.WriteScriptLogsToBepinexLog.Value)
             Logging.Log($"[Script] {extendedMessage}", level);
     }
     
-    public static void LogEngine(LogLevel level, string message, string tags = "")
+    public static void LogEngine(LogLevel level, string message)
     {
-        AudioDebugDisplay.Log(DebugMessageCategories.Engine, level, message, tags, 0f);
+        AudioDebugDisplay.Log(new MessageLog()
+        {
+            Category = DebugMessageCategories.Engine,
+            Level = level,
+            Message = message,
+        });
 
         if (ModAudio.WriteEngineLogsToBepinexLog.Value)
             Logging.Log($"[Engine] {message}", level);
     }
 
-    private static void Log(DebugMessageCategories category, LogLevel level, string message, string tags, float customFloatData)
+    private static void Log(MessageLog entry)
     {
-        var entry = new MessageLog()
-        {
-            Level = level,
-            Category = category,
-            Message = message,
-            Tags = tags,
-            CustomFloatData = customFloatData,
-        };
-
         entry.ShouldDisplayCached = ShouldDisplayLog(entry);
         
         _circularBuffer[_bufferEnd] = entry;
@@ -86,13 +136,27 @@ public class AudioDebugDisplay : MonoBehaviour
         _bufferEnd = (_bufferEnd + 1) % _circularBuffer.Length;
         if (_bufferEnd == _bufferStart)
             _bufferStart = (_bufferStart + 1) % _circularBuffer.Length;
-
-        if (category != DebugMessageCategories.Audio)
-        {
-            // 
-        }
     }
 
+    public void Awake()
+    {
+        _nextFilter = _currentFilter = new FilterData(
+            ShowErrorsAndWarnings: true,
+            ShowInfo: true,
+            ShowDebug: false,
+            Show2DAudio: true,
+            Show3DAudio: true,
+            FilterByDistance: false,
+            FilterByDistanceValue: 120,
+            TextFilter: "",
+            MatchWord: false,
+            Category: DebugMessageCategories.All,
+            Subcategory: "",
+            LatestMessagesOnly: true,
+            ShowModdedAudioOnly: false
+            );
+    }
+    
     public void OnGUI()
     {
         if (!_enabled)
@@ -101,65 +165,86 @@ public class AudioDebugDisplay : MonoBehaviour
         GUI.backgroundColor = new Color(0, 0, 0, 1);
         GUI.color = new Color(1, 1, 1, 1);
 
-        _disabledPackButton ??= new GUIStyle(GUI.skin.button)
+        if (_background == null)
         {
-            normal =
-            {
-                textColor = Color.gray
-            }
-        };
+            _background = new Texture2D(1, 1);
+            _background.SetPixel(0, 0, new Color(0, 0, 0, 1));
+            _background.Apply();
+        }
 
-        _disabledWithErrorsPackButton ??= new GUIStyle(GUI.skin.button)
+        if (_windowStyle == null)
         {
-            normal =
-            {
-                textColor = Color.red * 0.5f + Color.gray * 0.5f
-            }
-        };
+            // Either I'm stupid, or Unity is
+            _windowStyle = new GUIStyle(GUI.skin.window);
+            _windowStyle.normal.background = _background;
+            _windowStyle.normal.textColor = Color.white;
+            _windowStyle.hover.background = _background;
+            _windowStyle.hover.textColor = Color.white;
+            _windowStyle.active.background = _background;
+            _windowStyle.active.textColor = Color.white;
+            _windowStyle.focused.background = _background;
+            _windowStyle.focused.textColor = Color.white;
+            _windowStyle.onNormal.background = _background;
+            _windowStyle.onNormal.textColor = Color.white;
+            _windowStyle.onHover.background = _background;
+            _windowStyle.onHover.textColor = Color.white;
+            _windowStyle.onActive.background = _background;
+            _windowStyle.onActive.textColor = Color.white;
+            _windowStyle.onFocused.background = _background;
+            _windowStyle.onFocused.textColor = Color.white;
+        }
 
-        _activePackButton ??= new GUIStyle(GUI.skin.button)
+        if (_disabledPackButton == null)
         {
-            normal =
-            {
-                textColor = Color.white
-            }
-        };
+            _disabledPackButton = new GUIStyle(GUI.skin.button);
+            _disabledPackButton.normal.textColor = Color.gray;
+        }
 
-        _activeWithErrorsPackButton ??= new GUIStyle(GUI.skin.button)
+        if (_disabledWithErrorsPackButton == null)
         {
-            normal =
-            {
-                textColor = Color.red
-            }
-        };
+            _disabledWithErrorsPackButton = new GUIStyle(GUI.skin.button);
+            _disabledWithErrorsPackButton.normal.textColor = Color.red * 0.5f + Color.gray * 0.5f;
+        }
 
-        _logInfo ??= new GUIStyle(GUI.skin.label)
+        if (_activePackButton == null)
         {
-            normal =
-            {
-                textColor = Color.white
-            }
-        };
+            _activePackButton = new GUIStyle(GUI.skin.button);
+            _activePackButton.normal.textColor = Color.white;
+        }
 
-        _logWarn ??= new GUIStyle(GUI.skin.label)
+        if (_activeWithErrorsPackButton == null)
         {
-            normal =
-            {
-                textColor = Color.yellow
-            }
-        };
+            _activeWithErrorsPackButton = new GUIStyle(GUI.skin.button);
+            _activeWithErrorsPackButton.normal.textColor = Color.red;
+        }
+        
+        if (_logDebug == null)
+        {
+            _logDebug = new GUIStyle(GUI.skin.label);
+            _logDebug.normal.textColor = Color.gray;
+        }
+        
+        if (_logInfo == null)
+        {
+            _logInfo = new GUIStyle(GUI.skin.label);
+            _logInfo.normal.textColor = Color.white;
+        }
+        
+        if (_logWarn == null)
+        {
+            _logWarn = new GUIStyle(GUI.skin.label);
+            _logWarn.normal.textColor = Color.yellow;
+        }
 
-        _logError ??= new GUIStyle(GUI.skin.label)
+        if (_logError == null)
         {
-            normal =
-            {
-                textColor = Color.red
-            }
-        };
+            _logError = new GUIStyle(GUI.skin.label);
+            _logError.normal.textColor = Color.red;
+        }
 
         if (_rowHeight < 0)
             _rowHeight = GUI.skin.label.CalcSize(new GUIContent("Text")).y;
-
+        
         _windowPos = GUILayout.Window(0, new Rect(_windowPos.position, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f)), _ =>
         {
             _selectedTab = GUILayout.Toolbar(_selectedTab, _tabs);
@@ -174,7 +259,7 @@ public class AudioDebugDisplay : MonoBehaviour
                 RenderModAudioTab();
 
             GUI.DragWindow();
-        }, "ModAudio");
+        }, "ModAudio", _windowStyle);
     }
 
     public void Update()
@@ -365,15 +450,6 @@ public class AudioDebugDisplay : MonoBehaviour
             ModAudio.ApplyConfiguration();
     }
 
-    private static void UpdateCachedValue<T>(ref T cache, T value, ref bool changed)
-    {
-        if (!Equals(cache, value))
-        {
-            cache = value;
-            changed = true;
-        }
-    }
-
     private void UpdateAudioLogs()
     {
         // This is to make sure we render the same number of log elements within a frame
@@ -385,15 +461,11 @@ public class AudioDebugDisplay : MonoBehaviour
 
         bool filtersChanged = false;
 
-        UpdateCachedValue(ref _useDistanceFilterCached, _useDistanceFilter, ref filtersChanged);
-        UpdateCachedValue(ref _distanceFilterCached, _distanceFilter, ref filtersChanged);
-        UpdateCachedValue(ref _categoryCached, _category, ref filtersChanged);
-        UpdateCachedValue(ref _subcategoryCached, _subcategory, ref filtersChanged);
-        UpdateCachedValue(ref _latestMessagesOnlyCached, _latestMessagesOnly, ref filtersChanged);
-        UpdateCachedValue(ref _showErrorAndWarnsOnlyCached, _showErrorAndWarnsOnly, ref filtersChanged);
-        UpdateCachedValue(ref _filterModdedAudioCached, _filterModdedAudio, ref filtersChanged);
-        UpdateCachedValue(ref _logIncludeFilterCached, _logIncludeFilter, ref filtersChanged);
-        UpdateCachedValue(ref _logIncludeFilterMatchWordCached, _logIncludeFilterMatchWord, ref filtersChanged);
+        if (_currentFilter != _nextFilter)
+        {
+            _currentFilter = _nextFilter;
+            filtersChanged = true;
+        }
 
         if (_shouldClearLogs)
         {
@@ -402,16 +474,14 @@ public class AudioDebugDisplay : MonoBehaviour
         }
 
         _totalMessages = _bufferStart <= _bufferEnd ? _bufferEnd - _bufferStart : _circularBuffer.Length - _bufferStart + _bufferEnd;
-        _totalErrors = 0;
-        _totalWarnings = 0;
+        _totalErrorsAndWarnings = 0;
 
         _totalDisplayedMessages = 0;
-        _totalDisplayedErrors = 0;
-        _totalDisplayedWarnings = 0;
+        _totalDisplayedErrorsAndWarnings = 0;
 
         if (filtersChanged)
         {
-            _logIncludeFilterRegexToUse = _logIncludeFilterMatchWordCached ? new Regex($"\\b{Regex.Escape(_logIncludeFilterCached)}\\b", RegexOptions.IgnoreCase) : null;
+            _textFilterRegex = _currentFilter.MatchWord ? new Regex($"\\b{Regex.Escape(_currentFilter.TextFilter)}\\b", RegexOptions.IgnoreCase) : null;
             
             for (int i = _bufferStart; i != _bufferEnd; i = (i + 1) % _circularBuffer.Length)
             {
@@ -420,6 +490,7 @@ public class AudioDebugDisplay : MonoBehaviour
             }
         }
 
+        // TODO: Likely don't need to recompute this every frame
         for (int i = _bufferStart; i != _bufferEnd; i = (i + 1) % _circularBuffer.Length)
         {
             var message = _circularBuffer[i];
@@ -428,19 +499,12 @@ public class AudioDebugDisplay : MonoBehaviour
             if (shouldDisplay)
                 _totalDisplayedMessages++;
 
-            if (message.Level == LogLevel.Error)
+            if (message.Level <= LogLevel.Warning)
             {
-                _totalErrors++;
+                _totalErrorsAndWarnings++;
 
                 if (shouldDisplay)
-                    _totalDisplayedErrors++;
-            }
-            else if (message.Level == LogLevel.Warning)
-            {
-                _totalWarnings++;
-
-                if (shouldDisplay)
-                    _totalDisplayedWarnings++;
+                    _totalDisplayedErrorsAndWarnings++;
             }
         }
     }
@@ -453,25 +517,30 @@ public class AudioDebugDisplay : MonoBehaviour
 
         GUILayout.Label("Categories:");
 
-        if (GUILayout.Toggle(_category == DebugMessageCategories.All, "All"))
-            _category = DebugMessageCategories.All;
+        var category = _currentFilter.Category;
+        var subcategory = _currentFilter.Subcategory;
 
-        if (GUILayout.Toggle(_category == DebugMessageCategories.Pack, "Audio Packs"))
-            _category = DebugMessageCategories.Pack;
+        if (GUILayout.Toggle(category == DebugMessageCategories.All, "All"))
+            category = DebugMessageCategories.All;
 
-        if (GUILayout.Toggle(_category == DebugMessageCategories.Audio, "Audio Sources"))
-            _category = DebugMessageCategories.Audio;
+        if (GUILayout.Toggle(category == DebugMessageCategories.Pack, "Audio Packs"))
+            category  = DebugMessageCategories.Pack;
 
-        if (GUILayout.Toggle(_category == DebugMessageCategories.Script, "Scripts"))
-            _category = DebugMessageCategories.Script;
+        if (GUILayout.Toggle(category == DebugMessageCategories.Audio, "Audio Sources"))
+            category = DebugMessageCategories.Audio;
 
-        if (GUILayout.Toggle(_category == DebugMessageCategories.Engine, "Engine"))
-            _category = DebugMessageCategories.Engine;
+        if (GUILayout.Toggle(category == DebugMessageCategories.Script, "Scripts"))
+            category = DebugMessageCategories.Script;
 
+        if (GUILayout.Toggle(category == DebugMessageCategories.Engine, "Engine"))
+            category = DebugMessageCategories.Engine;
+
+        _nextFilter.Category = category;
+        
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
 
-        if (_category == DebugMessageCategories.Audio)
+        if (category == DebugMessageCategories.Audio)
         {
             GUILayout.BeginHorizontal();
 
@@ -479,42 +548,47 @@ public class AudioDebugDisplay : MonoBehaviour
 
             // Note: the groups here have to match with what is added to the tags of logs *exactly*
 
-            if (GUILayout.Toggle(_subcategory.Length == 0, "All"))
-                _subcategory = "";
+            if (GUILayout.Toggle(subcategory.Length == 0, "All"))
+                subcategory = "";
 
-            if (GUILayout.Toggle(_subcategory.Equals("AudGrp ambience"), "Ambience"))
-                _subcategory = "AudGrp ambience";
+            if (GUILayout.Toggle(subcategory.Equals("Ambience"), "Ambience"))
+                subcategory = "Ambience";
 
-            if (GUILayout.Toggle(_subcategory.Equals("AudGrp game"), "Game"))
-                _subcategory = "AudGrp game";
+            if (GUILayout.Toggle(subcategory.Equals("Game"), "Game"))
+                subcategory = "Game";
 
-            if (GUILayout.Toggle(_subcategory.Equals("AudGrp gui"), "GUI"))
-                _subcategory = "AudGrp gui";
+            if (GUILayout.Toggle(subcategory.Equals("GUI"), "GUI"))
+                subcategory = "GUI";
 
-            if (GUILayout.Toggle(_subcategory.Equals("AudGrp music"), "Music"))
-                _subcategory = "AudGrp music";
+            if (GUILayout.Toggle(subcategory.Equals("Music"), "Music"))
+                subcategory = "Music";
 
-            if (GUILayout.Toggle(_subcategory.Equals("AudGrp voice"), "Voice"))
-                _subcategory = "AudGrp voice";
+            if (GUILayout.Toggle(subcategory.Equals("Voice"), "Voice"))
+                subcategory = "Voice";
 
+            _nextFilter.Subcategory = subcategory;
+            
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
 
-            _useDistanceFilter = GUILayout.Toggle(_useDistanceFilter, $"Filter audio by distance from player ({_distanceFilter:F2})");
-            _distanceFilter = GUILayout.HorizontalSlider(_distanceFilter, 0f, 1000f, GUILayout.MaxWidth(10000));
+            _nextFilter.ShowModdedAudioOnly = GUILayout.Toggle(_currentFilter.ShowModdedAudioOnly, "Custom audio only");
+            _nextFilter.Show2DAudio = GUILayout.Toggle(_currentFilter.Show2DAudio, $"2D (UI)");
+            _nextFilter.Show3DAudio = GUILayout.Toggle(_currentFilter.Show3DAudio, $"3D (World)");
+            _nextFilter.FilterByDistance = GUILayout.Toggle(_currentFilter.FilterByDistance, $"Filter 3D audio by distance: ({_currentFilter.FilterByDistanceValue:F2})");
+            _nextFilter.FilterByDistanceValue = GUILayout.HorizontalSlider(_currentFilter.FilterByDistanceValue, 0f, 1000f, GUILayout.MaxWidth(10000));
 
             GUILayout.EndHorizontal();
         }
-
+        
         // TODO: This doesn't take into account lines that break onto multiple lines!
         // TODO: A better solution is needed, but performance might get degraded from this.
         var totalRowHeight = _rowHeight * _totalDisplayedMessages;
 
-        if (_latestMessagesOnlyCached)
+        if (_currentFilter.LatestMessagesOnly)
             _logScrollView.y = totalRowHeight;
-
+        
         _logScrollView = GUILayout.BeginScrollView(_logScrollView);
 
         var scrollRatio = Math.Clamp(_logScrollView.y / (totalRowHeight - _logScrollViewHeight), 0, 1);
@@ -544,7 +618,7 @@ public class AudioDebugDisplay : MonoBehaviour
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(MapLogLevelToLabel(log.Level), MapLogLevelToStyle(log.Level));
-                GUILayout.Label(log.Message);
+                GUILayout.Label(log.Message, MapLogLevelToStyle(log.Level));
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
             }
@@ -563,23 +637,23 @@ public class AudioDebugDisplay : MonoBehaviour
         GUILayout.BeginHorizontal();
         
         GUILayout.Label("Find:", GUILayout.ExpandWidth(false));
-        _logIncludeFilter = GUILayout.TextField(_logIncludeFilter, 80, GUILayout.ExpandWidth(true));
-        _logIncludeFilterMatchWord = GUILayout.Toggle(_logIncludeFilterMatchWord, "Match word", GUILayout.ExpandWidth(true));
+        _nextFilter.TextFilter = GUILayout.TextField(_currentFilter.TextFilter, 80, GUILayout.ExpandWidth(true));
+        _nextFilter.MatchWord = GUILayout.Toggle(_currentFilter.MatchWord, "Match word", GUILayout.ExpandWidth(true));
         
         GUILayout.EndHorizontal();
 
         GUILayout.BeginHorizontal();
 
         GUILayout.Label($"Total: {_totalDisplayedMessages}/{_totalMessages}");
-        GUILayout.Label($"Errors: {_totalDisplayedErrors}/{_totalErrors}");
-        GUILayout.Label($"Warnings: {_totalDisplayedWarnings}/{_totalWarnings}");
+        GUILayout.Label($"Issues: {_totalDisplayedErrorsAndWarnings}/{_totalErrorsAndWarnings}");
         
         if (GUILayout.Button("Clear messages", GUILayout.ExpandWidth(false)))
             _shouldClearLogs = true;
 
-        _latestMessagesOnly = GUILayout.Toggle(_latestMessagesOnly, "Follow log");
-        _showErrorAndWarnsOnly = GUILayout.Toggle(_showErrorAndWarnsOnly, "Issues only");
-        _filterModdedAudio = GUILayout.Toggle(_filterModdedAudio, "Custom audio only");
+        _nextFilter.LatestMessagesOnly = GUILayout.Toggle(_currentFilter.LatestMessagesOnly, "Follow log");
+        _nextFilter.ShowErrorsAndWarnings = GUILayout.Toggle(_currentFilter.ShowErrorsAndWarnings, "Errors and warnings");
+        _nextFilter.ShowInfo = GUILayout.Toggle(_currentFilter.ShowInfo, "Info");
+        _nextFilter.ShowDebug = GUILayout.Toggle(_currentFilter.ShowDebug, "Debug");
 
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
@@ -590,36 +664,48 @@ public class AudioDebugDisplay : MonoBehaviour
         // Note: this method is in the hot path for anything related to logging
         // It's important to implement things efficiently in here - this includes mundane stuff such as string comparisons
 
-        if (log.Level != LogLevel.Error && log.Level != LogLevel.Warning && _showErrorAndWarnsOnlyCached)
+        if (log.Level <= LogLevel.Warning && !_currentFilter.ShowErrorsAndWarnings)
+            return false;
+        
+        if (log.Level == LogLevel.Info && !_currentFilter.ShowInfo)
+            return false;
+        
+        if (log.Level == LogLevel.Debug && !_currentFilter.ShowDebug)
             return false;
 
-        bool shouldShowCategory = _categoryCached == DebugMessageCategories.All || log.Category == _categoryCached;
+        if (log.HasFlag(AudioLogFlags.Is2DSound) && !_currentFilter.Show2DAudio)
+            return false;
+        
+        if (!log.HasFlag(AudioLogFlags.Is2DSound) && !_currentFilter.Show3DAudio)
+            return false;
+
+        bool shouldShowCategory = _currentFilter.Category == DebugMessageCategories.All || log.Category == _currentFilter.Category;
 
         if (!shouldShowCategory)
             return false;
 
-        if (log.Category == DebugMessageCategories.Audio && _useDistanceFilterCached && log.CustomFloatData >= _distanceFilterCached)
+        if (log.Category == DebugMessageCategories.Audio && _currentFilter.FilterByDistance && log.AudioDistance >= _currentFilter.FilterByDistanceValue)
             return false;
 
         if (log.Category == DebugMessageCategories.Audio)
         {
-            if (_subcategoryCached != "" && !log.Tags.Contains(_subcategoryCached))
+            if (_currentFilter.Subcategory != "" && !string.Equals(_currentFilter.Subcategory, log.AudioGroup, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            if (_filterModdedAudioCached && !log.Tags.Contains("Routed") && !log.Tags.Contains("Overlay"))
+            if (_currentFilter.ShowModdedAudioOnly && !log.HasFlag(AudioLogFlags.Routed) && !log.HasFlag(AudioLogFlags.Overlay))
                 return false;
         }
 
-        if (_logIncludeFilterCached != "")
+        if (_currentFilter.TextFilter != "")
         {
-            if (!_logIncludeFilterMatchWordCached)
+            if (!_currentFilter.MatchWord)
             {
-                if (!log.Message.Contains(_logIncludeFilterCached, StringComparison.InvariantCultureIgnoreCase))
+                if (!log.Message.Contains(_currentFilter.TextFilter, StringComparison.InvariantCultureIgnoreCase))
                     return false;
             }
             else
             {
-                if (_logIncludeFilterRegexToUse == null || !_logIncludeFilterRegexToUse.Match(log.Message).Success)
+                if (_textFilterRegex == null || !_textFilterRegex.Match(log.Message).Success)
                     return false;
             }
         }
@@ -629,9 +715,10 @@ public class AudioDebugDisplay : MonoBehaviour
 
     private string MapLogLevelToLabel(LogLevel level) => level switch
     {
-        LogLevel.Info => "INFO ",
+        // Padded to 6 characters
+        LogLevel.Info => "INFO  ",
         LogLevel.Debug => "DEBUG ",
-        LogLevel.Warning => "WARN ",
+        LogLevel.Warning => "WARN  ",
         LogLevel.Error => "ERROR ",
         LogLevel.Fatal => "FATAL ",
         _ => "OTHER "
@@ -640,8 +727,10 @@ public class AudioDebugDisplay : MonoBehaviour
     private GUIStyle? MapLogLevelToStyle(LogLevel level) => level switch
     {
         LogLevel.Info => _logInfo,
+        LogLevel.Debug => _logDebug,
         LogLevel.Warning => _logWarn,
         LogLevel.Error => _logError,
+        LogLevel.Fatal => _logError,
         _ => _logInfo
     };
 
@@ -665,11 +754,14 @@ public class AudioDebugDisplay : MonoBehaviour
 
     private static float _rowHeight = -1;
 
+    private static Texture2D? _background;
+    private static GUIStyle? _windowStyle;
     private static GUIStyle? _disabledPackButton;
     private static GUIStyle? _activePackButton;
     private static GUIStyle? _activeWithErrorsPackButton;
     private static GUIStyle? _disabledWithErrorsPackButton;
 
+    private static GUIStyle? _logDebug;
     private static GUIStyle? _logInfo;
     private static GUIStyle? _logWarn;
     private static GUIStyle? _logError;
@@ -680,44 +772,34 @@ public class AudioDebugDisplay : MonoBehaviour
 
     private static bool _enabled;
 
-    private static float _distanceFilterCached = 120;
-    private static float _distanceFilter = 120;
-
-    private static bool _useDistanceFilterCached;
-    private static bool _useDistanceFilter;
-
-    private static DebugMessageCategories _categoryCached = DebugMessageCategories.All;
-    private static DebugMessageCategories _category = DebugMessageCategories.All;
-
-    private static string _subcategoryCached = "";
-    private static string _subcategory = "";
-
-    private static bool _showErrorAndWarnsOnlyCached;
-    private static bool _showErrorAndWarnsOnly;
-
-    private static bool _latestMessagesOnlyCached = true;
-    private static bool _latestMessagesOnly = true;
-
-    private static bool _filterModdedAudioCached;
-    private static bool _filterModdedAudio;
-
-    private static string _logIncludeFilterCached = "";
-    private static string _logIncludeFilter = "";
-
-    private static Regex? _logIncludeFilterRegexToUse;
-
-    private static bool _logIncludeFilterMatchWordCached;
-    private static bool _logIncludeFilterMatchWord;
+    private static Regex? _textFilterRegex;
 
     private static bool _shouldClearLogs;
 
-    private static int _totalErrors;
-    private static int _totalWarnings;
-    private static int _totalMessages;
+    private static FilterData _nextFilter;
+    private static FilterData _currentFilter; // Do not write to properties on this
 
-    private static int _totalDisplayedErrors;
-    private static int _totalDisplayedWarnings;
+    private record struct FilterData(
+        bool ShowErrorsAndWarnings,
+        bool ShowInfo,
+        bool ShowDebug,
+        bool Show2DAudio,
+        bool Show3DAudio,
+        bool FilterByDistance,
+        float FilterByDistanceValue,
+        string TextFilter,
+        bool MatchWord,
+        DebugMessageCategories Category,
+        string Subcategory,
+        bool LatestMessagesOnly,
+        bool ShowModdedAudioOnly
+        );
+
+    private static int _totalMessages;
+    private static int _totalErrorsAndWarnings;
+
     private static int _totalDisplayedMessages;
+    private static int _totalDisplayedErrorsAndWarnings;
 
     private static int _totalActiveAudioSources;
     private static int _totalInactiveAudioSources;

@@ -1,4 +1,5 @@
-﻿using BepInEx.Logging;
+﻿using System.Text;
+using BepInEx.Logging;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -44,72 +45,119 @@ public static class AudioSourceExtensions
 
     public static void LogDebugDisplay(this ModAudioSource state)
     {
-        var originalClipName = state.InitialState.Clip?.name ?? "(null)";
+        var message = new StringBuilder(512);
 
-        var clipDisplay = originalClipName;
+        message
+            .Append('[')
+            .Append(state.InitialState.Clip?.name ?? "(null)");
 
         for (int i = 0; i < state.RouteCount; i++)
         {
-            clipDisplay += " > " + state.GetRoute(i).SelectedClip?.name ?? "(null)";
+            message
+                .Append(" > ")
+                .Append(state.GetRoute(i).SelectedClip?.name ?? "(null)");
+        }
+            
+        message
+            .Append("] V(")
+            .Append($"{state.InitialState.Volume:F2}");
+        
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
+        if (state.InitialState.Volume != state.AppliedState.Volume)
+        {
+            message
+                .Append(" > ")
+                .Append($"{state.AppliedState.Volume:F2}");
         }
 
+        message
+            .Append(") P(")
+            .Append($"{state.InitialState.Pitch:F2}");
+        
         // ReSharper disable once CompareOfFloatsByEqualityOperator
-        var volumeDisplay = state.InitialState.Volume != state.AppliedState.Volume ? $"{state.InitialState.Volume:F2} > {state.AppliedState.Volume:F2}" : $"{state.AppliedState.Volume:F2}";
-        // ReSharper disable once CompareOfFloatsByEqualityOperator
-        var pitchDisplay = state.InitialState.Pitch != state.AppliedState.Pitch ? $"{state.InitialState.Pitch:F2} > {state.AppliedState.Pitch:F2}" : $"{state.AppliedState.Pitch:F2}";
+        if (state.InitialState.Pitch != state.AppliedState.Pitch)
+        {
+            message
+                .Append(" > ")
+                .Append($"{state.AppliedState.Pitch:F2}");
+        }
 
-        var messageDisplay = $"[{clipDisplay}] ({state.Audio.name}) V:{volumeDisplay} P:{pitchDisplay} G:{state.Audio.outputAudioMixerGroup?.name ?? "(null)"}";
-
-        messageDisplay += $" R:(";
+        var audioGroup = state.Audio.outputAudioMixerGroup?.name;
+        
+        message
+            .Append(") G(")
+            .Append(audioGroup ?? "(null)")
+            .Append(") R(");
 
         bool dynamicRoute = false;
 
         for (int i = 0; i < state.RouteCount; i++)
         {
-            messageDisplay += state.GetRoute(i).TargetGroup;
-
             if (i != state.RouteCount - 1)
-                messageDisplay += " > ";
+                message.Append(" > ");
+            
+            message.Append(state.GetRoute(i).TargetGroup);
 
             dynamicRoute = dynamicRoute || state.GetRoute(i).Route.EnableDynamicTargeting;
         }
 
-        messageDisplay += $")";
+        message.Append(") ");
 
         if (state.HasFlag(AudioFlags.IsOverlay))
-            messageDisplay += " overlay";
+            message.Append("overlay ");
 
         if (state.HasFlag(AudioFlags.IsDedicatedOneShotSource))
-            messageDisplay += " oneshot";
+            message.Append("oneshot ");
 
-        messageDisplay += " loop_" + (state.AppliedState.Loop ? "on" : "off");
+        message
+            .Append("loop_")
+            .Append(state.AppliedState.Loop ? "on" : "off");
 
         if (state.HasFlag(AudioFlags.LoopWasForced))
-            messageDisplay += "_force";
+            message.Append("_force");
+        
+        message.Append(' ');
 
         if (dynamicRoute)
-            messageDisplay += " dynamic";
+            message.Append("dynamic ");
 
         if (state.RouteCount >= 1 && state.GetRoute(0).Route.UseChainRouting)
-            messageDisplay += " chainrouted";
+            message.Append("chainrouted ");
 
         if (state.Audio.playOnAwake)
-            messageDisplay += " onAwake";
+            message.Append("onAwake ");
 
-        if (AudioEngine.Game.TryGetDistanceFromPlayer(state.Audio, out float distance))
+        float distance = 0f;
+
+        var tags = AudioDebugDisplay.AudioLogFlags.None;
+
+        if (state.Audio.spatialBlend <= 0.01f)
         {
-            messageDisplay += $" D:{distance:F2}";
+            // Assume it's a 2D sound
+            message.Append("(2D) ");
+            tags = tags | AudioDebugDisplay.AudioLogFlags.Is2DSound;
+        }
+        else
+        {
+            if (AudioEngine.Game.TryGetDistanceFromPlayer(state.Audio, out distance))
+            {
+                message
+                    .Append("(3D / ")
+                    .Append($"{distance:F2}")
+                    .Append(") ");
+            }
+            else
+            {
+                message.Append("(3D) ");
+            }
         }
 
-        // AudioGroup is lowercased since it needs to be in an exact, expected format for efficient filtering
-        string tags = $"AudGrp {(state.Audio.outputAudioMixerGroup?.name ?? "(null)").ToLower()}";
-
         if (state.RouteCount > 0)
-            tags += ",Routed";
+            tags = tags | AudioDebugDisplay.AudioLogFlags.Routed;
 
         if (state.HasFlag(AudioFlags.IsOverlay))
-            tags += ",Overlay";
+            tags = tags | AudioDebugDisplay.AudioLogFlags.Overlay;
 
-        AudioDebugDisplay.LogAudio(LogLevel.Info, messageDisplay, tags, distance: distance);
+        AudioDebugDisplay.LogAudio(LogLevel.Info, message.ToString(), tags, audioGroup, distance);
     }
 }

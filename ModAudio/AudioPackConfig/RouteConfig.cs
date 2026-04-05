@@ -251,6 +251,11 @@ public class RouteConfig
                         if (parsedValue = bool.TryParse(fields[1], out bool smoothDynamicTargeting))
                             route.SmoothDynamicTargeting = smoothDynamicTargeting;
                         break;
+                    case "tg_cont":
+                    case "continuous_dynamic_targeting":
+                        if (parsedValue = bool.TryParse(fields[1], out bool continuousDynamicTargeting))
+                            route.ContinuousDynamicTargeting = continuousDynamicTargeting;
+                        break;
                     case "chain":
                     case "chain_route":
                         if (parsedValue = bool.TryParse(fields[1], out bool allowChainRouting))

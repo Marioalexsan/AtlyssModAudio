@@ -69,25 +69,11 @@ public class ModAudio : MonoBehaviour
         if (SoftDependencies.HasEasySettings())
         {
             EasySettings_Initialize();
-
-            [MethodImpl(SoftDependencies.MethodOpts)]
-            static void EasySettings_Initialize()
-            {
-                Settings.OnInitialized.AddListener(() =>
-                {
-                    var modAudioTab = Settings.GetOrAddCustomTab(ModInfo.NAME);
-
-                    modAudioTab.AddToggle("Enable ModAudio?", ModAudioEnabled);
-                    modAudioTab.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
-                    modAudioTab.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
-                    modAudioTab.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
-                    modAudioTab.AddToggle("Write Audio logs to Bepinex", WriteAudioLogsToBepinexLog);
-                    modAudioTab.AddToggle("Write Pack logs to Bepinex", WritePackLogsToBepinexLog);
-                    modAudioTab.AddToggle("Write Script logs to Bepinex", WriteScriptLogsToBepinexLog);
-                    modAudioTab.AddToggle("Write Engine logs to Bepinex", WriteEngineLogsToBepinexLog);
-                });
-                Settings.OnApplySettings.AddListener(ApplyConfiguration);
-            }
+        }
+        else if (SoftDependencies.HasDependency(SoftDependencies.EasySettings, out var version))
+        {
+            Logging.LogWarning($"The currently installed EasySettings version {version} is not supported! ModAudio requires at least EasySettings 1.3.0!");
+            Logging.LogWarning("EasySettings functionality is not going to work until you update it!");
         }
 
         SceneManager.sceneLoaded += OnNewScene;
@@ -335,5 +321,24 @@ public class ModAudio : MonoBehaviour
             AudioDebugDisplay.LogEngine(LogLevel.Error, $"ModAudio crashed in {nameof(Update)}! Please report this error to the mod developer:");
             AudioDebugDisplay.LogEngine(LogLevel.Error, $"Exception data: {e}");
         }
+    }
+    
+    [MethodImpl(SoftDependencies.MethodOpts)]
+    static void EasySettings_Initialize()
+    {
+        Settings.OnInitialized.AddListener(() =>
+        {
+            var modAudioTab = Settings.GetOrAddCustomTab(ModInfo.NAME);
+
+            modAudioTab.AddToggle("Enable ModAudio?", ModAudioEnabled);
+            modAudioTab.AddToggle("Enable Easter Eggs?", EasterEggsEnabled);
+            modAudioTab.AddKeyButton("Debug Menu Toggle", DebugMenuButton);
+            modAudioTab.AddDropdown("Audio Source Detection Rate", SourceDetectionRate);
+            modAudioTab.AddToggle("Write Audio logs to Bepinex", WriteAudioLogsToBepinexLog);
+            modAudioTab.AddToggle("Write Pack logs to Bepinex", WritePackLogsToBepinexLog);
+            modAudioTab.AddToggle("Write Script logs to Bepinex", WriteScriptLogsToBepinexLog);
+            modAudioTab.AddToggle("Write Engine logs to Bepinex", WriteEngineLogsToBepinexLog);
+        });
+        Settings.OnApplySettings.AddListener(ApplyConfiguration);
     }
 }

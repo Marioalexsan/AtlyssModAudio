@@ -240,15 +240,19 @@ You have the following global variables available:
     - `mainPlayerLastPvpEventAt` - seconds since the last time the main player hit or got hit by some other player
     - `lastPlayerPvp` - a Player instance representing the last player that the main player hit or got hit by; this can be null or stale, so use in conjunction with `mainPlayerLastPvpEventAt`
 
-- `atlyss` module, which exports readonly proxies for some game objects through the following properties:
-  - `mainPlayer` - the main player as a `Player` instance, or null if not present yet
-  - `actionBarManager` - the current `ActionBarManager` instance, or null if not present yet
-  - `gameWorldManager` - the current `GameWorldManager` instance, or null if not present yet
-  - `shopkeepManager` - the current `ShopkeepManager` instance, or null if not present yet
-  - `mainMenuManager` - the current `MainMenuManager` instance, or null if not present yet
-  - `inGameUI` - the current `InGameUI` instance, or null if not present yet
-  
-For scripting examples, look on Thunderstore for any audio pack mods that use ModAudio >= 4.0.0 and have a `__routes.lua` file.
+- `game` module, which exports readonly proxies for some game objects through the following properties.
+  - For ATLYSS, the following properties are available:
+    - `mainPlayer` - the main player as a `Player` instance, or null if not present yet
+    - `actionBarManager` - the current `ActionBarManager` instance, or null if not present yet
+    - `gameWorldManager` - the current `GameWorldManager` instance, or null if not present yet
+    - `shopkeepManager` - the current `ShopkeepManager` instance, or null if not present yet
+    - `mainMenuManager` - the current `MainMenuManager` instance, or null if not present yet
+    - `inGameUI` - the current `InGameUI` instance, or null if not present yet
+
+For scripting examples, look on Thunderstore for any audio pack mods that use ModAudio >= 4.0.0 and have a `__routes.lua` file. For example:
+- [FlipWitch Music by ZeinaKC](https://thunderstore.io/c/atlyss/p/ZeinaKC/FlipWitch_Music/)
+- [Death's Door Audio by TZH](https://thunderstore.io/c/atlyss/p/TZH/Deaths_Door_Audio/)
+- [Combat Audio Pack by Marioalexsan](https://thunderstore.io/c/atlyss/p/Marioalexsan/Combat_Audio_Pack/)
 
 Things to keep in mind:
 - Scripts for your audio pack will be disabled if any call takes more than `100ms` to execute
@@ -260,10 +264,14 @@ Update script functions can be specified in `__routes.txt` with the `%updatescri
 
 This is just a callback that takes no parameters, returns nothing, and that gets called on every game update, like so:
 
-```js
-export function pack_update() {
-  // Do stuff
-}
+```lua
+p = {}
+
+function p.pack_update()
+  -- Do stuff
+end
+
+return p
 ```
 
 ## Target group scripts
@@ -272,17 +280,18 @@ Target group scripts can be specified in `__routes.txt` with the `~ target_group
 
 This is a function that gets called once when the route is triggered, and allows you to specify the `group` of targets that should be played. For example:
 
-```js
-export function target_group_tuul_valley(route) {
-  const mainPlayer = game.inGameUI;
+```lua
+p = {}
 
-  if (game.inGameUI._reigonTitle === "Tuul Enclave") {
-    route.targetGroup = "enclave";
-  }
-  else {
-    route.targetGroup = "valley";
-  }
-}
+function p.target_group_CrescentRoad(route)
+  if game.inGameUI._reigonTitle == "Crescent Cove" then
+    route.targetGroup = "Crescent_Cove"
+  else
+    route.targetGroup = "Crescent_Road"
+  end
+end
+
+return p
 ```
 
 The callback receives one parameter and returns nothing:
@@ -304,6 +313,8 @@ If `enable_dynamic_targeting` is set to true with `~ target_group_script : funct
 - This can be used to implement things like dynamic region audio, combat music, and other scriptable things
 
 If `smooth_dynamic_targeting` is set to true, then the engine will use a short fade out and fade in for switching groups, instead of doing it instantly.
+
+If `continuous_dynamic_targeting` is set to true, then the engine will preserve the playback position between groups, as if they play in parallel.
 
 # Mod Compatibility
 

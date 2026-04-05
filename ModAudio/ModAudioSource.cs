@@ -57,7 +57,7 @@ public class ModAudioSource
     /// Used only as part of dynamic targeting.
     /// This saves the global play position so that dynamic clips flow into one another more smoothly.
     /// </summary>
-    public TimeSpan DynamicTargetingResumePosition;
+    public TimeSpan DynamicTargetingPlayPosition;
     
     /// <summary>
     /// Multiplies all volume sets by this amount, and divides volume gets by this amount

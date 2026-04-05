@@ -40,19 +40,19 @@ public class ModAudioScript : IModAudioScript
         _luaState.OpenMathLibrary();
 
         _luaState.Environment["print"] = new LuaFunction("print", Print);
-        _luaState.Environment["accessPath"] = new LuaFunction("print", AccessPath);
+        _luaState.Environment["accessPath"] = new LuaFunction("accessPath", AccessPath);
 
         ModAudioModule.Context = AudioEngine.Game.Context as ILuaUserData;
         var gameData = AudioEngine.Game.GameData as ILuaUserData;
-        
+
         if (gameData == null || ModAudioModule.Context == null)
+        {
             AudioDebugDisplay.LogEngine(LogLevel.Error, "Either game data or context for Lua was null! Please report this to the mod developer!");
+        }
         
+        // Atlyss used to grab its data from the "atlyss" global; keep it around for backwards compatibility
         _luaState.Environment["modaudio"] = LuaValue.FromUserData(new ModAudioModule());
-        _luaState.Environment["game"] = LuaValue.FromUserData(gameData);
-        
-        // Atlyss used to grab its data from this property; keep it around for backwards compatibility
-        _luaState.Environment["atlyss"] = LuaValue.FromUserData(gameData);
+        _luaState.Environment["game"] = _luaState.Environment["atlyss"] = LuaValue.FromUserData(gameData);
     }
 
     public void Dispose()

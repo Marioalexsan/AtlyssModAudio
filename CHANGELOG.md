@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-Apr-04
+
+### Added
+- Added new effect for dynamic targeting: `continuous_dynamic_targeting` (alias `tg_cont`, default value: `false`)
+  - Setting this effect to `true` (i.e. `~ tg_cont : true`) will cause ModAudio to preserve play position when switching
+    clips as part of dynamic targeting, as if the clips are played "in parallel"
+  - If the previous clip's position is at 150 seconds, then the next clip will also start at 150 seconds
+  - If the next clip is shorter than the current play position, then the play position will be "wrapped around", i.e.
+    if the play position is 150, and the new clip is 125 seconds long, it will start at 25 seconds (150 % 125)
+  - Might be useful for zone specific music
+
+### Changed
+- Audio debug display's background is now full black for better contrast
+- Added filters for 2D (UI) and 3D (World / positional) audio in the debug display
+- Modified the layout of some debug display buttons
+
 ## [4.3.1] - 2026-Apr-02
 
 ### Fixed

@@ -7,9 +7,12 @@ public static class SoftDependencies
 {
     public const MethodImplOptions MethodOpts = MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization;
 
-    public static bool HasEasySettings(Version? minimumVersion = null) => HasDependency("EasySettings", minimumVersion);
-    public static bool HasHomebrewery(Version? minimumVersion = null) => HasDependency("Homebrewery", minimumVersion);
+    public const string EasySettings = "EasySettings";
+    public const string Homebrewery = "Homebrewery";
     
+    public static bool HasEasySettings() => HasDependency(EasySettings, new Version(1, 3, 0));
+    public static bool HasHomebrewery() => HasDependency(Homebrewery);
+
     public static bool HasDependency(string modId, Version? minimumVersion = null)
     {
         return DependencyHandler != null && DependencyHandler(modId, out var version) && (minimumVersion == null || version >= minimumVersion);

@@ -542,8 +542,19 @@ internal static class AudioEngine
 
     private static bool UpdateDynamicTargeting(ModAudioSource source)
     {
+        if (source.Audio.isPlaying)
+        {
+            if (!Mathf.Approximately(source.ProxiedPitch, 0))
+                source.DynamicTargetingPlayPosition += TimeSpan.FromSeconds(Time.deltaTime / source.ProxiedPitch);
+            else if (source.Audio.clip != null)
+                source.DynamicTargetingPlayPosition = TimeSpan.FromSeconds((float)source.Audio.timeSamples / source.Audio.clip.frequency);
+            else
+                source.DynamicTargetingPlayPosition = TimeSpan.FromSeconds(source.Audio.time);
+        }
+        
         bool groupsMismatched = false;
         bool useSmoothing = false;
+        bool useContinuousPlaying = false;
         bool forcePlay = false;
 
         for (int i = 0; i < source.RouteCount; i++)
@@ -552,6 +563,7 @@ internal static class AudioEngine
 
             // Use smoothing if any routes demand it
             useSmoothing = useSmoothing || routeData.Route.SmoothDynamicTargeting;
+            useContinuousPlaying = useContinuousPlaying || routeData.Route.ContinuousDynamicTargeting;
             forcePlay = routeData.Route.ForcePlay; // should take the value of the last route in the chain
 
             if (routeData.Route.EnableDynamicTargeting)
@@ -598,14 +610,31 @@ internal static class AudioEngine
 
                 Route(source, true);
                 source.LogDebugDisplay();
+                
+                if (useContinuousPlaying && source.Audio.clip != null)
+                    source.Audio.time = (float)(source.DynamicTargetingPlayPosition.TotalSeconds % source.Audio.clip.length);
 
-                if (useSmoothing)
+                // This can happen if a script uses skipRoute and kills the route as a result!
+                bool newRouteIsStillDynamic = source.HasFlag(AudioFlags.ShouldUpdateDynamicTargeting);
+
+                if (newRouteIsStillDynamic)
                 {
-                    source.Audio.volume = 0f;
-                    source.SetFlag(AudioFlags.IsSwappingTargets);
-                    source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
+                    if (useSmoothing)
+                    {
+                        // TODO: Clearing these flags manually causes user error. Write methods on ModAudioSource that can
+                        // TODO: bypass the volume / pitch / etc. locks
+                        source.ClearFlag(AudioFlags.VolumeLock);
+                        source.Audio.volume = 0f;
+                        source.SetFlag(AudioFlags.IsSwappingTargets);
+                        source.AssignFlag(AudioFlags.VolumeLock, UseVolumeLock);
+                    }
                 }
-
+                else
+                {
+                    // Clear the volume lock to avoid breaking the new route since it won't be checked anymore
+                    source.ClearFlag(AudioFlags.VolumeLock);
+                }
+                
                 if (wasPlaying || forcePlay)
                     source.PlayWithoutRouting();
             }
@@ -791,12 +820,13 @@ internal static class AudioEngine
 
             using (Profiling.Routing.Auto())
                 Route(state, false);
-
-            state.LogDebugDisplay();
+            
+            bool requiresRestart = wasPlaying && !state.Audio.isPlaying;
+            
+            if (!requiresRestart) // If we were to restart, then logging here would cause an additional log line
+                state.LogDebugDisplay();
 
             state.ClearFlag(AudioFlags.WasStoppedOrDisabled);
-
-            bool requiresRestart = wasPlaying && !state.Audio.isPlaying;
 
             if (requiresRestart)
                 state.PlayWithoutRouting();
