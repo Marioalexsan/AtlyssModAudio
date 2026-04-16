@@ -737,34 +737,49 @@ internal static class AudioEngine
 
     private static ModAudioSource CreateOneShotFromSource(ModAudioSource state, AudioClip oneShotClip)
     {
-        GameObject targetObject = state.Audio.gameObject;
+        // Casualties: Unknown already has its own one shot system
+        // Its sound tracking system will break if we try to mess with it
+        // TODO: Move this to a dedicates Games/CasualtiesUnknown project
+        bool originalSourceIsAlreadyDedicated = Application.productName == "CasualtiesUnknown";
 
-        // Note: some sound effects are played on particle systems that disable themselves after they're played
-        // We need to check if that is the case, and move the target object somewhere higher in the hierarchy
-        // Unfortunately there's no API to check if the particle system actually has stop behaviour set to disable
-
-        int parentsToGoThrough = 3;
-
-        do
+        ModAudioSource createdState;
+        
+        if (originalSourceIsAlreadyDedicated)
         {
-            var particleSystem = targetObject.GetComponent<ParticleSystem>();
-
-            if (particleSystem == null)
-                break;
-
-            if (targetObject.transform.parent == null)
-                break;
-
-            targetObject = targetObject.transform.parent.gameObject;
+            createdState = state;
         }
-        while (parentsToGoThrough-- > 0);
+        else
+        {
+            GameObject targetObject = state.Audio.gameObject;
 
-        var oneShotSource = state.Audio.CreateCloneOnTarget(targetObject);
+            // Note: some sound effects are played on particle systems that disable themselves after they're played
+            // We need to check if that is the case, and move the target object somewhere higher in the hierarchy
+            // Unfortunately there's no API to check if the particle system actually has stop behaviour set to disable
 
-        oneShotSource.playOnAwake = false; // This should be false for one shot activeSources, but whatever
-        oneShotSource.loop = false; // Otherwise this won't play one-shot
+            int parentsToGoThrough = 3;
 
-        var createdState = GetOrCreateModAudioSource(oneShotSource);
+            do
+            {
+                var particleSystem = targetObject.GetComponent<ParticleSystem>();
+
+                if (particleSystem == null)
+                    break;
+
+                if (targetObject.transform.parent == null)
+                    break;
+
+                targetObject = targetObject.transform.parent.gameObject;
+            }
+            while (parentsToGoThrough-- > 0);
+
+            var oneShotSource = state.Audio.CreateCloneOnTarget(targetObject);
+
+            oneShotSource.playOnAwake = false; // This should be false for one shot activeSources, but whatever
+            oneShotSource.loop = false; // Otherwise this won't play one-shot
+            
+            createdState = GetOrCreateModAudioSource(oneShotSource);
+        }
+
         createdState.SetFlag(AudioFlags.IsDedicatedOneShotSource | AudioFlags.OneShotStopsIfSourceStops);
         createdState.OneShotOrigin = state.Audio;
 

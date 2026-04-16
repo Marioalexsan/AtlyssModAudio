@@ -76,6 +76,7 @@ public class ModAudio : MonoBehaviour
             Logging.LogWarning("EasySettings functionality is not going to work until you update it!");
         }
 
+        Logging.LogInfo("ModAudio loaded!");
         SceneManager.sceneLoaded += OnNewScene;
     }
 
@@ -187,6 +188,10 @@ public class ModAudio : MonoBehaviour
     public static ConfigEntry<bool> WritePackLogsToBepinexLog { get; internal set; } = null!;
     public static ConfigEntry<bool> WriteScriptLogsToBepinexLog { get; internal set; } = null!;
     public static ConfigEntry<bool> WriteEngineLogsToBepinexLog { get; internal set; } = null!;
+
+    public static ConfigEntry<float> DebugDisplayWidthPct { get; internal set; } = null!;
+    public static ConfigEntry<float> DebugDisplayHeightPct { get; internal set; } = null!;
+    public static ConfigEntry<float> DebugDisplayOpacity { get; internal set; } = null!;
     
     public static ConfigEntry<bool> UseSystemAcmCodecs { get; internal set; } = null!;
 

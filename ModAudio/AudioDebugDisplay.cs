@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using BepInEx.Logging;
 using UnityEngine;
@@ -27,7 +28,7 @@ public class AudioDebugDisplay : MonoBehaviour
         Overlay = 1 << 1,
         Is2DSound = 1 << 2,
     }
-    
+
     private struct MessageLog
     {
         public LogLevel Level;
@@ -37,7 +38,7 @@ public class AudioDebugDisplay : MonoBehaviour
         public string? AudioGroup;
         public float AudioDistance; // Custom data
         public bool ShouldDisplayCached; // Cached information about whenever this should render during this frame
-        
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void SetFlag(AudioLogFlags flag) => Flags |= flag;
@@ -67,7 +68,7 @@ public class AudioDebugDisplay : MonoBehaviour
     private static readonly MessageLog[] _circularBuffer = new MessageLog[10000];
     private static int _bufferStart; // Inclusive
     private static int _bufferEnd; // Exclusive
-    
+
     public static void LogAudio(LogLevel level, string message, AudioLogFlags logFlags, string? audioGroup, float distance)
     {
         AudioDebugDisplay.Log(new MessageLog()
@@ -83,11 +84,11 @@ public class AudioDebugDisplay : MonoBehaviour
         if (ModAudio.WriteAudioLogsToBepinexLog.Value)
             Logging.Log($"[Audio] {message}", level);
     }
-    
+
     public static void LogPack(LogLevel level, AudioPack? pack, string message)
     {
         var extendedMessage = $"[{pack?.Config.DisplayName ?? "ModAudio"}] {message}";
-        
+
         AudioDebugDisplay.Log(new MessageLog()
         {
             Category = DebugMessageCategories.Pack,
@@ -98,11 +99,11 @@ public class AudioDebugDisplay : MonoBehaviour
         if (ModAudio.WritePackLogsToBepinexLog.Value)
             Logging.Log($"[Pack] {extendedMessage}", level);
     }
-    
+
     public static void LogScript(LogLevel level, AudioPack? script, string message)
     {
         var extendedMessage = $"[{script?.Config.DisplayName ?? "ModAudio"}] {message}";
-        
+
         AudioDebugDisplay.Log(new MessageLog()
         {
             Category = DebugMessageCategories.Script,
@@ -113,7 +114,7 @@ public class AudioDebugDisplay : MonoBehaviour
         if (ModAudio.WriteScriptLogsToBepinexLog.Value)
             Logging.Log($"[Script] {extendedMessage}", level);
     }
-    
+
     public static void LogEngine(LogLevel level, string message)
     {
         AudioDebugDisplay.Log(new MessageLog()
@@ -130,9 +131,9 @@ public class AudioDebugDisplay : MonoBehaviour
     private static void Log(MessageLog entry)
     {
         entry.ShouldDisplayCached = ShouldDisplayLog(entry);
-        
+
         _circularBuffer[_bufferEnd] = entry;
-        
+
         _bufferEnd = (_bufferEnd + 1) % _circularBuffer.Length;
         if (_bufferEnd == _bufferStart)
             _bufferStart = (_bufferStart + 1) % _circularBuffer.Length;
@@ -154,9 +155,9 @@ public class AudioDebugDisplay : MonoBehaviour
             Subcategory: "",
             LatestMessagesOnly: true,
             ShowModdedAudioOnly: false
-            );
+        );
     }
-    
+
     public void OnGUI()
     {
         if (!_enabled)
@@ -168,7 +169,7 @@ public class AudioDebugDisplay : MonoBehaviour
         if (_background == null)
         {
             _background = new Texture2D(1, 1);
-            _background.SetPixel(0, 0, new Color(0, 0, 0, 1));
+            _background.SetPixel(0, 0, new Color(0, 0, 0, ModAudio.DebugDisplayOpacity.Value / 100f));
             _background.Apply();
         }
 
@@ -212,24 +213,31 @@ public class AudioDebugDisplay : MonoBehaviour
             _activePackButton.normal.textColor = Color.white;
         }
 
+        if (_alignTextLeftButton == null)
+        {
+            _alignTextLeftButton = new GUIStyle(GUI.skin.button);
+            _alignTextLeftButton.normal.textColor = Color.white;
+            _alignTextLeftButton.alignment = TextAnchor.MiddleLeft;
+        }
+
         if (_activeWithErrorsPackButton == null)
         {
             _activeWithErrorsPackButton = new GUIStyle(GUI.skin.button);
             _activeWithErrorsPackButton.normal.textColor = Color.red;
         }
-        
+
         if (_logDebug == null)
         {
             _logDebug = new GUIStyle(GUI.skin.label);
             _logDebug.normal.textColor = Color.gray;
         }
-        
+
         if (_logInfo == null)
         {
             _logInfo = new GUIStyle(GUI.skin.label);
             _logInfo.normal.textColor = Color.white;
         }
-        
+
         if (_logWarn == null)
         {
             _logWarn = new GUIStyle(GUI.skin.label);
@@ -242,10 +250,16 @@ public class AudioDebugDisplay : MonoBehaviour
             _logError.normal.textColor = Color.red;
         }
 
+        if (_unbreakingText == null)
+        {
+            _unbreakingText = new GUIStyle(GUI.skin.label);
+            _unbreakingText.wordWrap = false;
+        }
+
         if (_rowHeight < 0)
             _rowHeight = GUI.skin.label.CalcSize(new GUIContent("Text")).y;
-        
-        _windowPos = GUILayout.Window(0, new Rect(_windowPos.position, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f)), _ =>
+
+        _windowPos = GUILayout.Window(0, new Rect(_windowPos.position, new Vector2(WindowWidth, WindowHeight)), _ =>
         {
             _selectedTab = GUILayout.Toolbar(_selectedTab, _tabs);
 
@@ -256,6 +270,9 @@ public class AudioDebugDisplay : MonoBehaviour
                 RenderAudioPacks();
 
             else if (_selectedTab == 2)
+                RenderAudioSourceTab();
+
+            else if (_selectedTab == 3)
                 RenderModAudioTab();
 
             GUI.DragWindow();
@@ -282,6 +299,9 @@ public class AudioDebugDisplay : MonoBehaviour
                 UpdateAudioPacks();
 
             else if (_selectedTab == 2)
+                UpdateAudioSourceTab();
+
+            else if (_selectedTab == 3)
                 UpdateModAudioTab();
         }
     }
@@ -362,7 +382,7 @@ public class AudioDebugDisplay : MonoBehaviour
 
         GUILayout.BeginHorizontal();
 
-        _audioPackScrollView = GUILayout.BeginScrollView(_audioPackScrollView, GUILayout.Width(Screen.width * 0.2f));
+        _audioPackScrollView = GUILayout.BeginScrollView(_audioPackScrollView, GUILayout.Width(WindowWidth * 0.3f));
 
         for (int i = 0; i < AudioEngine.AudioPacks.Count; i++)
         {
@@ -407,22 +427,22 @@ public class AudioDebugDisplay : MonoBehaviour
 
                 reloadRequired = true;
             }
-            
+
             GUILayout.Label($"Name: {pack.Config.DisplayName}");
             GUILayout.Label($"ID: {pack.Config.Id}");
             GUILayout.Label($"Path: {Utils.AliasRootPath(pack.PackPath)}");
             GUILayout.Space(_rowHeight);
-            
+
             GUILayout.Label($"Route files: {pack.ConfigFiles.Count} loaded");
             for (int i = 0; i < pack.ConfigFiles.Count; i++)
                 GUILayout.Label($"  {Utils.AliasRootPath(pack.ConfigFiles[i])}");
-            
+
             GUILayout.Space(_rowHeight);
-            
+
             GUILayout.Label($"Script files: {pack.ScriptFiles.Count} loaded");
             for (int i = 0; i < pack.ScriptFiles.Count; i++)
                 GUILayout.Label($"  {Utils.AliasRootPath(pack.ScriptFiles[i])}");
-            
+
             GUILayout.Space(_rowHeight);
             GUILayout.Label($"Pack flags: {pack.Flags}");
 
@@ -444,10 +464,118 @@ public class AudioDebugDisplay : MonoBehaviour
         }
 
         GUILayout.EndHorizontal();
-        
+
         // TODO: This sucks
         if (reloadRequired)
             ModAudio.ApplyConfiguration();
+    }
+
+    private void UpdateAudioSourceTab()
+    {
+        if (DateTime.Now >= _nextCachedSourcesUpdate)
+        {
+            _nextCachedSourcesUpdate = DateTime.Now + TimeSpan.FromMilliseconds(1000);
+            _cachedAudioSourceDisplay.Clear();
+            _cachedAudioSourceDisplay.AddRange(
+                AudioEngine.TrackedSources
+                    .Select(x =>
+                    {
+                        return (GetFullPath(x.Key.gameObject), x.Key.gameObject.name, x.Value);
+                    })
+                    .OrderBy(x => x.name)
+            );
+        }
+            
+        _visibleAudioSourceElements = int.MinValue;
+        _hiddenAudioSourceElementsBefore = int.MinValue;
+        _hiddenAudioSourceElementsAfter = int.MinValue;
+    }
+
+    private void RenderAudioSourceTab()
+    {
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label($"Audio sources: {_cachedAudioSourceDisplay.Count}");
+
+        GUILayout.EndHorizontal();
+
+        var totalButtons = _cachedAudioSourceDisplay.Count;
+        var totalButtonHeight = _buttonHeight * totalButtons;
+        
+        GUILayout.BeginHorizontal();
+
+        _audioSourcesScrollView = GUILayout.BeginScrollView(_audioSourcesScrollView, GUILayout.Width(WindowWidth * 0.5f));
+
+        var scrollRatio = Math.Clamp(_audioSourcesScrollView.y / (totalButtonHeight - _audioSourcesScrollViewHeight), 0, 1);
+
+        if (_visibleAudioSourceElements == int.MinValue)
+        {
+            _hiddenAudioSourceElementsBefore = Math.Clamp((int)(Mathf.Lerp(0, totalButtonHeight - _audioSourcesScrollViewHeight - _buttonHeight, scrollRatio) / _buttonHeight), 0, totalButtons);
+            _hiddenAudioSourceElementsAfter = Math.Clamp((int)(Mathf.Lerp(totalButtonHeight - _audioSourcesScrollViewHeight - _buttonHeight, 0, scrollRatio) / _buttonHeight), 0, totalButtons);
+            _visibleAudioSourceElements = totalButtons - _hiddenAudioSourceElementsAfter - _hiddenAudioSourceElementsBefore;
+        }
+
+        GUILayout.Space(_buttonHeight * _hiddenAudioSourceElementsBefore);
+
+        for (int elementCount = _hiddenAudioSourceElementsBefore; elementCount < _hiddenAudioSourceElementsBefore + _visibleAudioSourceElements; elementCount++)
+        {
+            GUILayout.BeginHorizontal();
+            
+            if (GUILayout.Button(_cachedAudioSourceDisplay[elementCount].DisplayName, _alignTextLeftButton, GUILayout.Width(200)))
+                _viewingThisSource = _cachedAudioSourceDisplay[elementCount].Source;
+
+            if (elementCount == _hiddenAudioSourceElementsBefore)
+            {
+                if (Event.current.type == EventType.Repaint)
+                    _buttonHeight = GUILayoutUtility.GetLastRect().height;
+            }
+
+            GUILayout.Label(_cachedAudioSourceDisplay[elementCount].Path, _unbreakingText);
+            
+            GUILayout.EndHorizontal();
+        }
+
+        if (_hiddenAudioSourceElementsAfter >= 1)
+            GUILayout.Space(_buttonHeight * _hiddenAudioSourceElementsAfter);
+
+        GUILayout.EndScrollView();
+
+        if (Event.current.type == EventType.Repaint)
+            _audioSourcesScrollViewHeight = GUILayoutUtility.GetLastRect().height;
+        
+        if (_viewingThisSource?.Audio != null)
+        {
+            var modSource = _viewingThisSource;
+            var source = modSource.Audio;
+            var path = GetFullPath(source.gameObject);
+
+            _audioSourceDetailsScrollView = GUILayout.BeginScrollView(_audioSourceDetailsScrollView);
+
+            var pos = source.transform.position;
+
+            GUILayout.Label($"Unity stuff:");
+            GUILayout.Label($"  Scene path: {path}");
+            GUILayout.Label($"  Name: {source.name}");
+            GUILayout.Label($"  Clip: {source.clip?.name ?? "(null)"}");
+            GUILayout.Label($"  Volume: {source.volume:F2}");
+            GUILayout.Label($"  Pitch: {source.pitch:F2}");
+            GUILayout.Label($"  Looping: {source.loop}");
+            GUILayout.Label($"  Is playing: {source.isPlaying}");
+            GUILayout.Label($"  Audio group: {source.outputAudioMixerGroup?.name ?? "(null)"}");
+            GUILayout.Label($"  Position in world (X, Y, Z) = ({pos.x:F2}, {pos.y:F2}, {pos.z:F2}) ");
+
+            GUILayout.Space(_rowHeight);
+
+            GUILayout.Label($"ModAudio specific stuff:");
+            GUILayout.Label($"  Proxied volume: {modSource.ProxiedVolume:F2}");
+            GUILayout.Label($"  Proxied pitch: {modSource.ProxiedPitch:F2}");
+            GUILayout.Label($"  Flags: {modSource.Flags}");
+            GUILayout.Label($"  Tracked instance ID: {modSource.TrackedInstanceId}");
+
+            GUILayout.EndScrollView();
+        }
+        
+        GUILayout.EndHorizontal();
     }
 
     private void UpdateAudioLogs()
@@ -482,7 +610,7 @@ public class AudioDebugDisplay : MonoBehaviour
         if (filtersChanged)
         {
             _textFilterRegex = _currentFilter.MatchWord ? new Regex($"\\b{Regex.Escape(_currentFilter.TextFilter)}\\b", RegexOptions.IgnoreCase) : null;
-            
+
             for (int i = _bufferStart; i != _bufferEnd; i = (i + 1) % _circularBuffer.Length)
             {
                 var message = _circularBuffer[i];
@@ -508,7 +636,7 @@ public class AudioDebugDisplay : MonoBehaviour
             }
         }
     }
-    
+
     private void RenderAudioLogs()
     {
         using var renderLogsMarker = Profiling.RenderLogsMarker.Auto();
@@ -524,7 +652,7 @@ public class AudioDebugDisplay : MonoBehaviour
             category = DebugMessageCategories.All;
 
         if (GUILayout.Toggle(category == DebugMessageCategories.Pack, "Audio Packs"))
-            category  = DebugMessageCategories.Pack;
+            category = DebugMessageCategories.Pack;
 
         if (GUILayout.Toggle(category == DebugMessageCategories.Audio, "Audio Sources"))
             category = DebugMessageCategories.Audio;
@@ -536,7 +664,7 @@ public class AudioDebugDisplay : MonoBehaviour
             category = DebugMessageCategories.Engine;
 
         _nextFilter.Category = category;
-        
+
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
 
@@ -567,7 +695,7 @@ public class AudioDebugDisplay : MonoBehaviour
                 subcategory = "Voice";
 
             _nextFilter.Subcategory = subcategory;
-            
+
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -581,14 +709,14 @@ public class AudioDebugDisplay : MonoBehaviour
 
             GUILayout.EndHorizontal();
         }
-        
+
         // TODO: This doesn't take into account lines that break onto multiple lines!
         // TODO: A better solution is needed, but performance might get degraded from this.
         var totalRowHeight = _rowHeight * _totalDisplayedMessages;
 
         if (_currentFilter.LatestMessagesOnly)
             _logScrollView.y = totalRowHeight;
-        
+
         _logScrollView = GUILayout.BeginScrollView(_logScrollView);
 
         var scrollRatio = Math.Clamp(_logScrollView.y / (totalRowHeight - _logScrollViewHeight), 0, 1);
@@ -633,20 +761,20 @@ public class AudioDebugDisplay : MonoBehaviour
 
         if (Event.current.type == EventType.Repaint)
             _logScrollViewHeight = GUILayoutUtility.GetLastRect().height;
-        
+
         GUILayout.BeginHorizontal();
-        
+
         GUILayout.Label("Find:", GUILayout.ExpandWidth(false));
         _nextFilter.TextFilter = GUILayout.TextField(_currentFilter.TextFilter, 80, GUILayout.ExpandWidth(true));
         _nextFilter.MatchWord = GUILayout.Toggle(_currentFilter.MatchWord, "Match word", GUILayout.ExpandWidth(true));
-        
+
         GUILayout.EndHorizontal();
 
         GUILayout.BeginHorizontal();
 
         GUILayout.Label($"Total: {_totalDisplayedMessages}/{_totalMessages}");
         GUILayout.Label($"Issues: {_totalDisplayedErrorsAndWarnings}/{_totalErrorsAndWarnings}");
-        
+
         if (GUILayout.Button("Clear messages", GUILayout.ExpandWidth(false)))
             _shouldClearLogs = true;
 
@@ -666,16 +794,16 @@ public class AudioDebugDisplay : MonoBehaviour
 
         if (log.Level <= LogLevel.Warning && !_currentFilter.ShowErrorsAndWarnings)
             return false;
-        
+
         if (log.Level == LogLevel.Info && !_currentFilter.ShowInfo)
             return false;
-        
+
         if (log.Level == LogLevel.Debug && !_currentFilter.ShowDebug)
             return false;
 
         if (log.HasFlag(AudioLogFlags.Is2DSound) && !_currentFilter.Show2DAudio)
             return false;
-        
+
         if (!log.HasFlag(AudioLogFlags.Is2DSound) && !_currentFilter.Show3DAudio)
             return false;
 
@@ -734,9 +862,16 @@ public class AudioDebugDisplay : MonoBehaviour
         _ => _logInfo
     };
 
-    private static Rect _windowPos = new Rect(Screen.width * 0.1f, Screen.height * 0.1f, Screen.width * 0.5f, Screen.height * 0.5f);
+    private static float WindowWidth => Screen.width * (ModAudio.DebugDisplayWidthPct.Value / 100f);
+    private static float WindowHeight => Screen.height * (ModAudio.DebugDisplayHeightPct.Value / 100f);
+    private static Rect _windowPos = new Rect(
+        Screen.width * 0.05f, 
+        Screen.height * 0.05f, 
+        WindowWidth, 
+        WindowHeight
+    );
 
-    private readonly string[] _tabs = ["Audio logs", "Audio packs", "Audio sources"]; // TODO: Audio sources tab
+    private readonly string[] _tabs = ["Audio logs", "Audio packs", "Audio sources", "ModAudio Stats"]; // TODO: Audio sources tab
     private static int _selectedTab;
 
     // Audio Packs start
@@ -746,6 +881,23 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _selectedPack = -1;
 
     // Audio Packs end
+
+    // Audio Sources start
+
+    private static ModAudioSource? _viewingThisSource;
+    private static List<(string Path, string DisplayName, ModAudioSource Source)> _cachedAudioSourceDisplay = [];
+    private DateTime _nextCachedSourcesUpdate = DateTime.Now;
+    private static float _buttonHeight = 10;
+    
+    private static Vector2 _audioSourcesScrollView;
+    private static Vector2 _audioSourceDetailsScrollView;
+    private static float _audioSourcesScrollViewHeight = 100;
+
+    private static int _visibleAudioSourceElements = int.MinValue;
+    private static int _hiddenAudioSourceElementsBefore = int.MinValue;
+    private static int _hiddenAudioSourceElementsAfter = int.MinValue;
+
+    // Audio Sources end
 
     // Audio Log Field start
 
@@ -758,6 +910,7 @@ public class AudioDebugDisplay : MonoBehaviour
     private static GUIStyle? _windowStyle;
     private static GUIStyle? _disabledPackButton;
     private static GUIStyle? _activePackButton;
+    private static GUIStyle? _alignTextLeftButton;
     private static GUIStyle? _activeWithErrorsPackButton;
     private static GUIStyle? _disabledWithErrorsPackButton;
 
@@ -765,6 +918,8 @@ public class AudioDebugDisplay : MonoBehaviour
     private static GUIStyle? _logInfo;
     private static GUIStyle? _logWarn;
     private static GUIStyle? _logError;
+    
+    private static GUIStyle? _unbreakingText;
 
     private static int _visibleLogElements = int.MinValue;
     private static int _hiddenLogElementsBefore = int.MinValue;
@@ -793,7 +948,7 @@ public class AudioDebugDisplay : MonoBehaviour
         string Subcategory,
         bool LatestMessagesOnly,
         bool ShowModdedAudioOnly
-        );
+    );
 
     private static int _totalMessages;
     private static int _totalErrorsAndWarnings;
@@ -809,5 +964,25 @@ public class AudioDebugDisplay : MonoBehaviour
     private static int _totalInMemoryBytes;
     private static DateTime _totalSourcesLastFetchedAt = DateTime.UnixEpoch;
 
+    private static StringBuilder _cachedPathBuilder = new(128);
+
+    public static string GetFullPath(GameObject obj)
+    {
+        _cachedPathBuilder.Clear();
+
+        static void BuildPath(Transform transform)
+        {
+            if (transform.parent != null)
+            {
+                BuildPath(transform.parent);
+                _cachedPathBuilder.Append(" / ").Append(transform.name);
+            }
+            else _cachedPathBuilder.Append(transform.name);
+        }
+
+        BuildPath(obj.transform);
+
+        return _cachedPathBuilder.ToString();
+    }
     // Audio Log Field end
 }

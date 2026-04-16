@@ -42,15 +42,18 @@ public enum AudioFlags : uint
 
 public class ModAudioSource
 {
+    private static long NextTrackedInstanceId = 0;
     public const int MaxChainedRoutes = 4;
 
     public ModAudioSource(AudioSource source)
     {
         Audio = source;
+        TrackedInstanceId = NextTrackedInstanceId++;
     }
 
     public readonly AudioSource Audio;
     public AudioSource? OneShotOrigin;
+    public readonly long TrackedInstanceId; // For stable sorting purposes
 
     // TODO: Not implemented!
     /// <summary>

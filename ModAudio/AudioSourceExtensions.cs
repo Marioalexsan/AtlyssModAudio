@@ -57,9 +57,10 @@ public static class AudioSourceExtensions
                 .Append(" > ")
                 .Append(state.GetRoute(i).SelectedClip?.name ?? "(null)");
         }
-            
         message
-            .Append("] V(")
+            .Append("] S(")
+            .Append(state.Audio.name)
+            .Append(") V(")
             .Append($"{state.InitialState.Volume:F2}");
         
         // ReSharper disable once CompareOfFloatsByEqualityOperator

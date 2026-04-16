@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using BepInEx;
 using BepInEx.Bootstrap;
+using BepInEx.Configuration;
 using UnityEngine;
 
 namespace Marioalexsan.ModAudio;
@@ -86,10 +87,34 @@ public class BepinexEntrypoint : BaseUnityPlugin
             true,
             "Should ModAudio write information coming from its audio engine to the BepInEx log?"
         );
+        
+        ModAudio.DebugDisplayWidthPct = Config.Bind(
+            "DebugDisplay",
+            nameof(ModAudio.DebugDisplayWidthPct),
+            50f,
+            new ConfigDescription("The size of the Audio Debug Display window, in % of game window height", new AcceptableValueRange<float>(25, 90))
+        );
+        ModAudio.DebugDisplayHeightPct = Config.Bind(
+            "DebugDisplay",
+            nameof(ModAudio.DebugDisplayHeightPct),
+            50f,
+            new ConfigDescription("The size of the Audio Debug Display window, in % of game window height", new AcceptableValueRange<float>(25, 90))
+        );
+        ModAudio.DebugDisplayOpacity = Config.Bind(
+            "DebugDisplay",
+            nameof(ModAudio.DebugDisplayOpacity),
+            100f,
+            new ConfigDescription("The opacity of the Audio Debug Display window. 100 = fully opaque, 0 = fully transparent", new AcceptableValueRange<float>(0, 100f))
+        );
     }
+
+    private static GameObject? _loadedObject;
 
     public void Awake()
     {
-        DontDestroyOnLoad(new GameObject("ModAudio", typeof(ModAudio), typeof(AudioDebugDisplay)));
+        Debug.Log("Setting up ModAudio...");
+        _loadedObject = new GameObject("ModAudio", typeof(ModAudio), typeof(AudioDebugDisplay));
+        _loadedObject.hideFlags = HideFlags.HideAndDontSave;
+        DontDestroyOnLoad(_loadedObject);
     }
 }

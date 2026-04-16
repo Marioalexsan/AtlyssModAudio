@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-Apr-16
+
+### Added
+- Added a new tab that displays data about all of the audio sources currently present in the game
+  - Currently displays the name and the audio source path in a list
+  - Selecting an audio source will display some extra details about the properties set on the source, such as volume and pitch
+- Added configuration options for changing how the debug display menu is rendererd
+  -  `DebugDisplayWidthPct` - how wide the debug display should be relative to the game window (default: 50, min: 25, max: 90)
+  -  `DebugDisplayHeightPct` - how high the debug display should be relative to the game window (default: 50, min: 25, max: 90)
+  -  `DebugDisplayOpacity` - what opacity to use for the background  (default: 100, min: 0, max: 100)
+
+### Fixed
+- Readded logging the audio source name to audio being played
+
 ## [4.4.0] - 2026-Apr-04
 
 ### Added
