@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Some groups for modaudio_map_tuulvalley_action's script were wrong (thanks Daric_Leland)
+- Removed _mu_wonton5.ogg from the package, it was already being pulled from the game
 
 ## [1.1.0] - 2025-Aug-16
 

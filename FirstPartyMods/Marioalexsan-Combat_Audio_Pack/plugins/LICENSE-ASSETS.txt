@@ -1,0 +1,6 @@
+Assets from here are not covered by the LGPL3 license of ModAudio, and are instead under their own licenses.
+I don't claim any copyright on these unless explicitly stated.
+
+markstopsplenda.ogg - https://soundcloud.com/kiseff/markstopsplenda-feat-lamp-shady
+opensalami.ogg - https://soundcloud.com/kiseff/opensalami
+rig_my_selection.ogg - https://soundcloud.com/kiseff/rig-my-selection
