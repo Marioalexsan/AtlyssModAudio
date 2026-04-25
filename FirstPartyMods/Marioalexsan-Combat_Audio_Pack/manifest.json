@@ -1,7 +1,7 @@
 {
   "name": "Combat_Audio_Pack",
   "description": "ModAudio pack that adds combat music to most maps.",
-  "version_number": "1.1.0",
+  "version_number": "1.1.1",
   "dependencies": [
     "Marioalexsan-ModAudio-4.0.0"
   ],

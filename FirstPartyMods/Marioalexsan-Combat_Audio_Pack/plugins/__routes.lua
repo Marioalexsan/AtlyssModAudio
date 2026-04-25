@@ -122,9 +122,9 @@ end
 
 function p.target_group_tuul_valley(route)
   if atlyss.inGameUI._reigonTitle == "Tuul Enclave" then
-    route.targetGroup = "regular_combat"
+    route.targetGroup = "enclave"
   else
-    route.targetGroup = "slime_diva_combat"
+    route.targetGroup = "valley"
   end
 end
 
